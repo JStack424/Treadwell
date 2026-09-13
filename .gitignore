@@ -1,0 +1,37 @@
+# Build/package output
+bin/
+obj/
+artifacts/
+dist/
+
+# Private local game and BepInEx assemblies
+lib/local/
+*.dll
+*.pdb
+
+# Local reference/tool configuration
+.valheim-reference-path
+.template-sync-plan.json
+Environment.props
+Directory.Build.props.local
+
+# IDE/editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Caches and secrets
+__pycache__/
+*.py[cod]
+.env
+.env.*
+*.key
+*.pem
+credentials*
+secrets*
+
+# OS
+.DS_Store
+Thumbs.db

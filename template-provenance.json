@@ -1,0 +1,6 @@
+{
+  "template_repository": "valheim-mod-template",
+  "template_revision": "c57d9aa0fc593f25559ea55bb311f55d4d71aa36",
+  "generated_at_utc": "deterministic-from-template-commit",
+  "sync_policy": "dry-run-required"
+}

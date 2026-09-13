@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "slug": "treadwell",
+  "display_name": "Treadwell",
+  "identifier": "Treadwell",
+  "author": "JStack424",
+  "plugin_guid": "com.jstack424.treadwell",
+  "version": "0.1.0",
+  "description": "Build roads worth taking.",
+  "repository_url": "https://github.com/JStack424/Treadwell",
+  "thunderstore_dependency": "denikson-BepInExPack_Valheim-5.4.2350"
+}

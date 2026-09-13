@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>$(ModIdentifier)</AssemblyName>
+    <RootNamespace>$(ModIdentifier)</RootNamespace>
+    <Description>$(ModDisplayName) Valheim plugin.</Description>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="0Harmony"><HintPath>$(ValheimReferencePath)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx"><HintPath>$(ValheimReferencePath)/BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(ValheimReferencePath)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ValheimReferencePath)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(ValheimReferencePath)/UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(ValheimReferencePath)/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.TextMeshPro"><HintPath>$(ValheimReferencePath)/Unity.TextMeshPro.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="assembly_guiutils"><HintPath>$(ValheimReferencePath)/assembly_guiutils.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="assembly_utils"><HintPath>$(ValheimReferencePath)/assembly_utils.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="assembly_valheim"><HintPath>$(ValheimReferencePath)/assembly_valheim.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <!-- Compile pure core source into the one plugin DLL. Tests reference the
+       separate netstandard2.0 project; no shared runtime/core DLL is shipped. -->
+  <ItemGroup>
+    <Compile Include="../$(ModIdentifier).Core/**/*.cs"
+             Exclude="../$(ModIdentifier).Core/bin/**;../$(ModIdentifier).Core/obj/**"
+             Link="Core/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <Target Name="GeneratePluginBuildInfo" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <GeneratedPluginBuildInfo>$(IntermediateOutputPath)GeneratedBuildInfo.g.cs</GeneratedPluginBuildInfo>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(GeneratedPluginBuildInfo)"
+      Lines="namespace $(ModIdentifier) { internal static class GeneratedBuildInfo { public const string Version = &quot;$(ModVersion)&quot;%3B public const string Commit = &quot;$(SourceRevisionId)&quot;%3B } }"
+      Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup><Compile Include="$(GeneratedPluginBuildInfo)" /></ItemGroup>
+  </Target>
+
+  <Target Name="ValidatePrivateReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(ValheimReferencePath)' == ''" Text="ValheimReferencePath was not provided. Run through scripts/build.sh or set VALHEIM_REFERENCE_PATH." />
+    <Error Condition="!Exists('$(ValheimReferencePath)/0Harmony.dll')" Text="Missing private reference: 0Harmony.dll" />
+    <Error Condition="!Exists('$(ValheimReferencePath)/BepInEx.dll')" Text="Missing private reference: BepInEx.dll" />
+    <Error Condition="!Exists('$(ValheimReferencePath)/UnityEngine.dll')" Text="Missing private reference: UnityEngine.dll" />
+    <Error Condition="!Exists('$(ValheimReferencePath)/UnityEngine.CoreModule.dll')" Text="Missing private reference: UnityEngine.CoreModule.dll" />
+    <Error Condition="!Exists('$(ValheimReferencePath)/UnityEngine.InputLegacyModule.dll')" Text="Missing private reference: UnityEngine.InputLegacyModule.dll" />
+    <Error Condition="!Exists('$(ValheimReferencePath)/UnityEngine.UI.dll')" Text="Missing private reference: UnityEngine.UI.dll" />
+    <Error Condition="!Exists('$(ValheimReferencePath)/Unity.TextMeshPro.dll')" Text="Missing private reference: Unity.TextMeshPro.dll" />
+    <Error Condition="!Exists('$(ValheimReferencePath)/assembly_guiutils.dll')" Text="Missing private reference: assembly_guiutils.dll" />
+    <Error Condition="!Exists('$(ValheimReferencePath)/assembly_utils.dll')" Text="Missing private reference: assembly_utils.dll" />
+    <Error Condition="!Exists('$(ValheimReferencePath)/assembly_valheim.dll')" Text="Missing private reference: assembly_valheim.dll" />
+  </Target>
+
+  <Target Name="VerifyReferencesWereNotCopied" AfterTargets="Build">
+    <Error Condition="Exists('$(TargetDir)0Harmony.dll') Or Exists('$(TargetDir)BepInEx.dll') Or Exists('$(TargetDir)UnityEngine.dll') Or Exists('$(TargetDir)UnityEngine.CoreModule.dll') Or Exists('$(TargetDir)UnityEngine.InputLegacyModule.dll') Or Exists('$(TargetDir)UnityEngine.UI.dll') Or Exists('$(TargetDir)Unity.TextMeshPro.dll') Or Exists('$(TargetDir)assembly_guiutils.dll') Or Exists('$(TargetDir)assembly_utils.dll') Or Exists('$(TargetDir)assembly_valheim.dll')"
+      Text="A private game/runtime reference leaked into plugin output." />
+  </Target>
+</Project>
