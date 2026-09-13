@@ -2,7 +2,7 @@
   "name": "Treadwell",
   "version_number": "0.1.0",
   "website_url": "https://github.com/JStack424/Treadwell",
-  "description": "Build roads worth taking.",
+  "description": "Make Valheim's dirt paths and paved roads worth using with configurable sprint speed and stamina bonuses.",
   "dependencies": [
     "denikson-BepInExPack_Valheim-5.4.2350"
   ]
