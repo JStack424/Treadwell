@@ -16,7 +16,7 @@ fi
 branch="$(git branch --show-current)"
 [[ -n "$branch" ]] || { printf 'Release requires a named git branch.\n' >&2; exit 1; }
 origin="$(git remote get-url origin 2>/dev/null || true)"
-if [[ ! "$origin" =~ ^(git@github\.com:|https://github\.com/)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(\.git)?$ ]]; then
+if [[ ! "$origin" =~ ^(git@github\.com:|https://github\.com/|ssh://git@ssh\.github\.com:443/)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(\.git)?$ ]]; then
   printf 'Release requires origin to be a configured GitHub repository.\n' >&2
   exit 1
 fi
