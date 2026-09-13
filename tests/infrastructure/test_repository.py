@@ -12,6 +12,7 @@ PLUGIN_DIR = ROOT / "src" / IDENTIFIER
 PLUGIN_PROJECT = PLUGIN_DIR / f"{IDENTIFIER}.csproj"
 CORE_PROJECT = ROOT / "src" / f"{IDENTIFIER}.Core" / f"{IDENTIFIER}.Core.csproj"
 TEST_PROJECT = ROOT / "tests" / f"{IDENTIFIER}.Tests" / f"{IDENTIFIER}.Tests.csproj"
+COMPAT_PROJECT = ROOT / "tests" / f"{IDENTIFIER}.Compatibility.Tests" / f"{IDENTIFIER}.Compatibility.Tests.csproj"
 
 
 class RepositoryInfrastructureTests(unittest.TestCase):
@@ -24,10 +25,14 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         plugin = PLUGIN_PROJECT.read_text()
         core = CORE_PROJECT.read_text()
         tests = TEST_PROJECT.read_text()
+        compatibility_tests = COMPAT_PROJECT.read_text()
         self.assertIn("<TargetFramework>net48</TargetFramework>", plugin)
         self.assertIn("<TargetFramework>netstandard2.0</TargetFramework>", core)
         self.assertIn("<TargetFramework>net8.0</TargetFramework>", tests)
+        self.assertIn("<TargetFramework>net8.0</TargetFramework>", compatibility_tests)
         self.assertIn("ProjectReference", tests)
+        self.assertNotIn("ProjectReference", compatibility_tests)
+        self.assertNotIn("PackageReference", compatibility_tests)
         self.assertNotIn("ProjectReference", plugin)
         self.assertIn("../$(ModIdentifier).Core/**/*.cs", plugin)
         self.assertNotRegex(core, r"BepInEx|UnityEngine|Harmony")
@@ -66,6 +71,48 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("_harmony.UnpatchSelf()", module)
         self.assertIn("foreach (var module in _modules.Reverse())", host)
 
+    def test_mvp_scope_and_exact_five_settings(self):
+        plugin = (PLUGIN_DIR / "Plugin.cs").read_text()
+        module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
+        core = (ROOT / "src" / f"{IDENTIFIER}.Core" / "RoadLogic.cs").read_text()
+        self.assertEqual(5, plugin.count("Config.Bind("))
+        for marker in (
+            '"Enable mod", true',
+            '"Dirt sprint speed bonus (%)", 5f',
+            '"Dirt sprint stamina reduction (%)", 5f',
+            '"Paved sprint speed bonus (%)", 10f',
+            '"Paved sprint stamina reduction (%)", 10f',
+            "AcceptableValueRange<float>(0f, 100f)",
+        ):
+            self.assertIn(marker, plugin)
+        self.assertIn('typeof(Player), "GetRunSpeedFactor"', module)
+        self.assertIn('typeof(SEMan), "ModifyRunStaminaDrain"', module)
+        self.assertIn("__result *=", module)
+        self.assertIn("drain *=", module)
+        self.assertIn("player != Player.m_localPlayer", module)
+        self.assertIn("player.IsOnGround()", module)
+        self.assertIn("GetLastGroundCollider", module)
+        self.assertIn("GetComponentInParent<Heightmap>", module)
+        self.assertIn("TerrainSurface.Cultivated", core)
+        self.assertIn("TerrainSurface.NonTerrain", core)
+        self.assertIn("NaturalGapHoldSeconds = 0.18d", module)
+        self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
+
+    def test_exact_game_contract_is_checked_offline_and_at_runtime(self):
+        build = (ROOT / "scripts" / "build.sh").read_text()
+        compatibility_test = (COMPAT_PROJECT.parent / "Program.cs").read_text()
+        gate = (PLUGIN_DIR / "CompatibilityGate.cs").read_text()
+        module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
+        self.assertIn(f"tests/$identifier.Compatibility.Tests/$identifier.Compatibility.Tests.csproj", build)
+        for marker in (
+            "ExpectedSha256", "ExpectedMvid", "GetRunSpeedFactor", "ModifyRunStaminaDrain",
+            "GetPaintMask", "m_character", "m_localPlayer", "m_paintMaskDirt",
+            "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType",
+        ):
+            self.assertIn(marker, compatibility_test)
+        for marker in ("RequireMethod", "RequireField", "RequireColor"):
+            self.assertIn(marker, gate + module)
+
     def test_plugin_identity_and_build_commit_are_generated(self):
         plugin = (PLUGIN_DIR / "Plugin.cs").read_text()
         project = PLUGIN_PROJECT.read_text()
@@ -90,12 +137,17 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("unexpected ZIP attributes", script)
         self.assertIn("origin/", script)
 
-    def test_generated_icon_is_valid_shape(self):
+    def test_original_icon_is_valid_and_pinned(self):
+        import hashlib
         icon = ROOT / "packages" / IDENTIFIER / "icon.png"
+        renderer = ROOT / "scripts" / "render_icon.py"
         self.assertTrue(icon.is_file())
+        self.assertTrue(renderer.is_file())
         data = icon.read_bytes()
         self.assertEqual(b"\x89PNG\r\n\x1a\n", data[:8])
         self.assertEqual((256).to_bytes(4, "big") * 2, data[16:24])
+        self.assertEqual("c8efe7f00f42aff1066340bd6d3993df43cf686c3e664632cbc7501301343fee", hashlib.sha256(data).hexdigest())
+        self.assertIn("boot", renderer.read_text())
 
     def test_release_output_contains_only_plugin_and_symbols(self):
         output = PLUGIN_DIR / "bin" / "Release"

@@ -16,21 +16,22 @@ namespace Treadwell
 
         private void Awake()
         {
+            var percentageRange = new AcceptableValueRange<float>(0f, 100f);
             var modEnabled = Config.Bind("General", "Enable mod", true,
-                "Master switch. A restart is required after changing this setting.");
-            var starterEnabled = Config.Bind("Features", "Enable starter feature", false,
-                "Safe no-op placeholder. Replace it when implementing the first real feature.");
+                "Master switch for all Treadwell road bonuses.");
+            var dirtSpeed = Config.Bind("Road bonuses", "Dirt sprint speed bonus (%)", 5f,
+                new ConfigDescription("Extra sprint speed on vanilla dirt paths.", percentageRange));
+            var dirtStamina = Config.Bind("Road bonuses", "Dirt sprint stamina reduction (%)", 5f,
+                new ConfigDescription("Reduction to sprint stamina drain on vanilla dirt paths.", percentageRange));
+            var pavedSpeed = Config.Bind("Road bonuses", "Paved sprint speed bonus (%)", 10f,
+                new ConfigDescription("Extra sprint speed on vanilla paved roads.", percentageRange));
+            var pavedStamina = Config.Bind("Road bonuses", "Paved sprint stamina reduction (%)", 10f,
+                new ConfigDescription("Reduction to sprint stamina drain on vanilla paved roads.", percentageRange));
 
             Logger.LogInfo(PluginName + " " + PluginVersion + " (" + GeneratedBuildInfo.Commit + ") loading.");
-            if (!modEnabled.Value)
-            {
-                Logger.LogInfo(PluginName + " is disabled by configuration; no feature modules were started.");
-                return;
-            }
-
             _features = new FeatureHost(new IFeatureModule[]
             {
-                new NoOpFeatureModule(starterEnabled, Logger)
+                new RoadFeatureModule(modEnabled, dirtSpeed, dirtStamina, pavedSpeed, pavedStamina, Logger)
             }, Logger);
 
             var compatibility = CompatibilityGate.Evaluate(_features);

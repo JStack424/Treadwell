@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>$(ModIdentifier).Compatibility.Tests</AssemblyName>
+    <RootNamespace>$(ModIdentifier).Compatibility.Tests</RootNamespace>
+  </PropertyGroup>
+</Project>

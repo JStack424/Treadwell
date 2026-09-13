@@ -1,73 +1,50 @@
 # Treadwell
 
-Build roads worth taking.
+**Build roads worth taking.**
 
-Generated from JStack424's infrastructure-first Valheim mod template. The scaffold is deployable but intentionally changes no gameplay.
+Treadwell is a focused, vanilla-plus Valheim mod that makes constructed paths meaningfully easier to sprint along without changing the rest of movement.
 
-## Projects
+## MVP behavior
 
-- `src/Treadwell/`: BepInEx 5 plugin targeting .NET Framework 4.8.
-- `src/Treadwell.Core/`: pure `netstandard2.0` logic, linked into the plugin DLL.
-- `tests/Treadwell.Tests/`: zero-framework `net8.0` behavior tests.
-- `tests/infrastructure/`: repository, metadata, release, and packaging safety checks.
+- Vanilla dirt paths: **5% faster sprinting** and **5% less sprint stamina drain** by default.
+- Vanilla paved roads: **10% faster sprinting** and **10% less sprint stamina drain** by default.
+- Walking, sneaking, swimming, jumping, dodging, attacks, carts, NPCs, natural terrain, cultivated soil, and building floors are unchanged.
+- A private 0.18-second natural-terrain gap hold smooths path-paint boundaries. Cultivated soil, building floors, leaving the ground, and other non-terrain surfaces clear the bonus immediately.
+- No status icon, popup, sound, or gameplay message.
 
-Each mod owns its source. There is no shared runtime dependency between generated mods.
+The patches multiply Valheim's calculated run-speed factor and its final status-effect-adjusted run-stamina drain. They do not replace base values, Run skill scaling, equipment modifiers, status-effect modifiers, or the global movement-stamina rate.
 
-## Private Valheim references
+## Configuration
 
-Private game/runtime DLLs are never committed or packaged. `scripts/resolve-references.sh` checks, in order:
+Treadwell creates exactly five settings in `BepInEx/config/com.jstack424.treadwell.cfg`:
 
-1. `VALHEIM_REFERENCE_PATH`
-2. ignored `lib/local/ValheimReferences`
-3. `~/workspace/valheim-references/current`
-4. the existing ignored Stackmaster reference bundle (migration fallback)
+1. `Enable mod` (default `true`)
+2. `Dirt sprint speed bonus (%)` (default `5`)
+3. `Dirt sprint stamina reduction (%)` (default `5`)
+4. `Paved sprint speed bonus (%)` (default `10`)
+5. `Paved sprint stamina reduction (%)` (default `10`)
 
-The required filenames live in `scripts/required-references.txt`. The build validates all of them and every reference uses `<Private>false>`.
+Percentages are constrained to `0–100`. Settings are read live; the master switch installs or removes Treadwell's isolated Harmony patches.
 
-## Commands
+## Compatibility and multiplayer
+
+Version 0.1.0 is deliberately fail-closed for **Valheim 1.0.12 / Steam build 25253764**, Unity `6000.0.75f1`, BepInEx `5.4.23.5`, and Harmony `2.9.0.0`. It verifies the game assembly hash, MVID, every patched method, every accessed field, and the expected dirt/cultivated/paved paint encodings before installing hooks. A different runtime disables the feature and logs the reason.
+
+Treadwell changes only the local player's movement calculations and writes no world or container state. Each player who wants the bonuses installs the mod on their own client. This first test build has not yet been exercised in a live game or multiplayer session.
+
+## Local development
+
+Private Valheim and BepInEx DLLs remain untracked and are never packaged.
 
 ```bash
 ./scripts/build.sh
 ./scripts/test-package.sh
-./scripts/package.py --verify-only artifacts/test/JStack424-Treadwell-0.1.0-test.zip
 ```
 
-`build.sh` performs locked restore, warning-as-error Release compilation, core tests, metadata checks, repository audits, and infrastructure tests.
+The build performs locked restore, warning-as-error Release compilation, pure behavior tests, an independent metadata contract test against the pinned game assembly, repository checks, and package auditing. The test package contains exactly five files.
 
-`test-package.sh` creates a local test ZIP without requiring a clean tree or a remote push. It never uploads anything.
+## Source and license
 
-For a public candidate:
+Source: https://github.com/JStack424/Treadwell (reserved package URL; no repository was created for this local MVP)
 
-```bash
-# Commit behavior/docs first and configure the GitHub repository as origin.
-./scripts/release.sh 0.1.0
-```
-
-The release script refuses a dirty starting tree, updates `mod.json`, regenerates derived metadata, runs all checks, commits the version change when needed, requires a GitHub `origin`, pushes and verifies the exact remote commit, and only then creates `artifacts/release/JStack424-Treadwell-0.1.0.zip`. It never uploads to Thunderstore, creates a Git tag, or creates a GitHub Release.
-
-## Metadata
-
-`mod.json` is the only hand-edited source of package identity and version. Run:
-
-```bash
-./scripts/render_metadata.py          # regenerate derived files
-./scripts/render_metadata.py --check  # fail if derived files drifted
-```
-
-README and changelog prose are normal project-owned documents. The initializer creates them once; template sync never overwrites them.
-
-## Feature modules and compatibility
-
-A feature module owns its config entry, compatibility checks, Harmony instance, enable path, and cleanup. Add every reflected game member a feature depends upon to that feature's `ValidateCompatibility` implementation before adding patches. The global gate validates exact runtime versions, `assembly_valheim` MVID, and SHA-256 before enabling any module.
-
-## Template updates
-
-Template sync is deliberately reviewable and tooling-only:
-
-```bash
-./scripts/sync-template.sh                  # dry-run and write an approval plan
-./scripts/sync-template.sh --apply <revision-from-dry-run>
-git diff                                    # review, test, then commit yourself
-```
-
-Apply refuses a dirty mod repository or a stale/missing dry-run plan. It updates only the allowlisted generic scripts plus provenance. It never edits `src/`, project docs, package docs, changelogs, metadata, or behavior tests.
+Licensed under the [MIT License](LICENSE).

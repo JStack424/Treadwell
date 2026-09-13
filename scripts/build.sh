@@ -11,4 +11,5 @@ head="$(git rev-parse HEAD)"
 ./scripts/dotnet.sh restore "$identifier.sln" --locked-mode -p:ValheimReferencePath="$reference_path"
 ./scripts/dotnet.sh build "$identifier.sln" --configuration Release --no-restore -p:ValheimReferencePath="$reference_path" -p:SourceRevisionId="$head"
 ./scripts/dotnet.sh run --project "tests/$identifier.Tests/$identifier.Tests.csproj" --configuration Release --no-build
+./scripts/dotnet.sh run --project "tests/$identifier.Compatibility.Tests/$identifier.Compatibility.Tests.csproj" --configuration Release --no-build -- "$reference_path/assembly_valheim.dll"
 python3 -m unittest discover -s tests/infrastructure -p 'test_*.py' -v

@@ -24,7 +24,7 @@ namespace Treadwell
 
     internal static class CompatibilityGate
     {
-        // Exact runtime supplied by the currently verified Valheim 1.0 reference bundle.
+        // Exact runtime supplied by the verified Valheim 1.0.12 / Steam build 25253764 reference bundle.
         private static readonly Guid SupportedValheimMvid = new Guid("b8a6fd30-3061-43b3-99f2-11c2e315bc54");
         private const string SupportedValheimSha256 = "27a766a8d23a7bd8b6a54fb9ad0452a96c305fb3629b39c40527c09a1c393a84";
         private const string SupportedGameVersion = "1.0.12";
@@ -59,6 +59,60 @@ namespace Treadwell
             return failures.Count == 0
                 ? new CompatibilityResult(true, "verified runtime surface")
                 : new CompatibilityResult(false, string.Join("; ", failures));
+        }
+
+        internal static void RequireMethod(
+            ICollection<string> failures,
+            Type declaringType,
+            string name,
+            Type returnType,
+            BindingFlags flags,
+            Type[] parameterTypes,
+            Func<MethodInfo, bool> additionalCheck = null)
+        {
+            var method = declaringType.GetMethod(name, flags, null, parameterTypes, null);
+            if (method == null || method.ReturnType != returnType || (additionalCheck != null && !additionalCheck(method)))
+                failures.Add(declaringType.Name + "." + name + " signature is not the verified build");
+        }
+
+        internal static void RequireMethodNamedReturn(
+            ICollection<string> failures,
+            Type declaringType,
+            string name,
+            string returnTypeFullName,
+            BindingFlags flags,
+            Type[] parameterTypes)
+        {
+            var method = declaringType.GetMethod(name, flags, null, parameterTypes, null);
+            if (method == null || !string.Equals(method.ReturnType.FullName, returnTypeFullName, StringComparison.Ordinal))
+                failures.Add(declaringType.Name + "." + name + " signature is not the verified build");
+        }
+
+        internal static void RequireField(
+            ICollection<string> failures,
+            Type declaringType,
+            string name,
+            Type fieldType,
+            BindingFlags flags)
+        {
+            var field = declaringType.GetField(name, flags | BindingFlags.DeclaredOnly);
+            if (field == null || field.FieldType != fieldType)
+                failures.Add(declaringType.Name + "." + name + " field is not the verified build");
+        }
+
+        internal static void RequireColor(
+            ICollection<string> failures,
+            string label,
+            Color observed,
+            float red,
+            float green,
+            float blue,
+            float alpha)
+        {
+            const float epsilon = 0.0001f;
+            if (Math.Abs(observed.r - red) > epsilon || Math.Abs(observed.g - green) > epsilon ||
+                Math.Abs(observed.b - blue) > epsilon || Math.Abs(observed.a - alpha) > epsilon)
+                failures.Add(label + " encoding is not the verified build");
         }
 
         private static void RequireEqual(ICollection<string> failures, string label, string observed, string expected)
