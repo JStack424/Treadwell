@@ -19,13 +19,13 @@ namespace Treadwell
             var percentageRange = new AcceptableValueRange<float>(0f, 100f);
             var modEnabled = Config.Bind("General", "Enable mod", true,
                 "Master switch for all Treadwell road bonuses.");
-            var dirtSpeed = Config.Bind("Road bonuses", "Dirt sprint speed bonus (%)", 5f,
+            var dirtSpeed = Config.Bind("Road bonuses", "Dirt sprint speed bonus (%)", 10f,
                 new ConfigDescription("Extra sprint speed on vanilla dirt paths.", percentageRange));
-            var dirtStamina = Config.Bind("Road bonuses", "Dirt sprint stamina reduction (%)", 5f,
+            var dirtStamina = Config.Bind("Road bonuses", "Dirt sprint stamina reduction (%)", 10f,
                 new ConfigDescription("Reduction to sprint stamina drain on vanilla dirt paths.", percentageRange));
-            var pavedSpeed = Config.Bind("Road bonuses", "Paved sprint speed bonus (%)", 10f,
+            var pavedSpeed = Config.Bind("Road bonuses", "Paved sprint speed bonus (%)", 20f,
                 new ConfigDescription("Extra sprint speed on vanilla paved roads.", percentageRange));
-            var pavedStamina = Config.Bind("Road bonuses", "Paved sprint stamina reduction (%)", 10f,
+            var pavedStamina = Config.Bind("Road bonuses", "Paved sprint stamina reduction (%)", 20f,
                 new ConfigDescription("Reduction to sprint stamina drain on vanilla paved roads.", percentageRange));
 
             Logger.LogInfo(PluginName + " " + PluginVersion + " (" + GeneratedBuildInfo.Commit + ") loading.");

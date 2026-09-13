@@ -78,10 +78,10 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertEqual(5, plugin.count("Config.Bind("))
         for marker in (
             '"Enable mod", true',
-            '"Dirt sprint speed bonus (%)", 5f',
-            '"Dirt sprint stamina reduction (%)", 5f',
-            '"Paved sprint speed bonus (%)", 10f',
-            '"Paved sprint stamina reduction (%)", 10f',
+            '"Dirt sprint speed bonus (%)", 10f',
+            '"Dirt sprint stamina reduction (%)", 10f',
+            '"Paved sprint speed bonus (%)", 20f',
+            '"Paved sprint stamina reduction (%)", 20f',
             "AcceptableValueRange<float>(0f, 100f)",
         ):
             self.assertIn(marker, plugin)

@@ -32,13 +32,13 @@ namespace Treadwell.Tests
 
         private static void TuningTests()
         {
-            var defaults = new RoadTuning(5f, 5f, 10f, 10f);
+            var defaults = new RoadTuning(10f, 10f, 20f, 20f);
             Run("natural speed is unchanged", () => Near(1f, defaults.SpeedMultiplier(RoadSurface.None)));
             Run("natural stamina is unchanged", () => Near(1f, defaults.StaminaMultiplier(RoadSurface.None)));
-            Run("dirt speed default is plus five percent", () => Near(1.05f, defaults.SpeedMultiplier(RoadSurface.Dirt)));
-            Run("dirt stamina default is five percent lower", () => Near(0.95f, defaults.StaminaMultiplier(RoadSurface.Dirt)));
-            Run("paved speed default is plus ten percent", () => Near(1.10f, defaults.SpeedMultiplier(RoadSurface.Paved)));
-            Run("paved stamina default is ten percent lower", () => Near(0.90f, defaults.StaminaMultiplier(RoadSurface.Paved)));
+            Run("dirt speed default is plus ten percent", () => Near(1.10f, defaults.SpeedMultiplier(RoadSurface.Dirt)));
+            Run("dirt stamina default is ten percent lower", () => Near(0.90f, defaults.StaminaMultiplier(RoadSurface.Dirt)));
+            Run("paved speed default is plus twenty percent", () => Near(1.20f, defaults.SpeedMultiplier(RoadSurface.Paved)));
+            Run("paved stamina default is twenty percent lower", () => Near(0.80f, defaults.StaminaMultiplier(RoadSurface.Paved)));
             Run("negative percentages clamp to zero", () => Near(0f, new RoadTuning(-5f, -1f, -10f, -2f).PavedSpeedPercent));
             Run("percentages above one hundred clamp", () => Near(0f, new RoadTuning(500f, 500f, 500f, 500f).StaminaMultiplier(RoadSurface.Paved)));
             Run("non-finite percentages clamp safely", () =>
@@ -49,7 +49,7 @@ namespace Treadwell.Tests
                 Near(1f, tuning.SpeedMultiplier(RoadSurface.Paved));
                 Near(1f, tuning.StaminaMultiplier(RoadSurface.Paved));
             });
-            Run("road multiplier preserves vanilla result", () => Near(1.3125f, 1.25f * defaults.SpeedMultiplier(RoadSurface.Dirt)));
+            Run("road multiplier preserves vanilla result", () => Near(1.375f, 1.25f * defaults.SpeedMultiplier(RoadSurface.Dirt)));
         }
 
         private static void HysteresisTests()

@@ -4,8 +4,8 @@
 
 Treadwell gives Valheim's constructed roads a small, practical payoff while keeping movement vanilla-plus:
 
-- Dirt paths: **+5% sprint speed** and **5% less sprint stamina use** by default.
-- Paved roads: **+10% sprint speed** and **10% less sprint stamina use** by default.
+- Dirt paths: **+10% sprint speed** and **10% less sprint stamina use** by default.
+- Paved roads: **+20% sprint speed** and **20% less sprint stamina use** by default.
 
 Only the local player's sprinting on vanilla terrain-painted paths is changed. Natural terrain, cultivated soil, floors, walking, sneaking, swimming, jumping, dodging, attacks, carts, and creatures are untouched. A very short edge-smoothing window prevents road-paint boundaries from flickering, and there is no status icon or gameplay message.
 

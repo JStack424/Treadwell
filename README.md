@@ -6,8 +6,8 @@ Treadwell is a focused, vanilla-plus Valheim mod that makes constructed paths me
 
 ## MVP behavior
 
-- Vanilla dirt paths: **5% faster sprinting** and **5% less sprint stamina drain** by default.
-- Vanilla paved roads: **10% faster sprinting** and **10% less sprint stamina drain** by default.
+- Vanilla dirt paths: **10% faster sprinting** and **10% less sprint stamina drain** by default.
+- Vanilla paved roads: **20% faster sprinting** and **20% less sprint stamina drain** by default.
 - Walking, sneaking, swimming, jumping, dodging, attacks, carts, NPCs, natural terrain, cultivated soil, and building floors are unchanged.
 - A private 0.18-second natural-terrain gap hold smooths path-paint boundaries. Cultivated soil, building floors, leaving the ground, and other non-terrain surfaces clear the bonus immediately.
 - No status icon, popup, sound, or gameplay message.
@@ -19,10 +19,10 @@ The patches multiply Valheim's calculated run-speed factor and its final status-
 Treadwell creates exactly five settings in `BepInEx/config/com.jstack424.treadwell.cfg`:
 
 1. `Enable mod` (default `true`)
-2. `Dirt sprint speed bonus (%)` (default `5`)
-3. `Dirt sprint stamina reduction (%)` (default `5`)
-4. `Paved sprint speed bonus (%)` (default `10`)
-5. `Paved sprint stamina reduction (%)` (default `10`)
+2. `Dirt sprint speed bonus (%)` (default `10`)
+3. `Dirt sprint stamina reduction (%)` (default `10`)
+4. `Paved sprint speed bonus (%)` (default `20`)
+5. `Paved sprint stamina reduction (%)` (default `20`)
 
 Percentages are constrained to `0–100`. Settings are read live; the master switch installs or removes Treadwell's isolated Harmony patches.
 
