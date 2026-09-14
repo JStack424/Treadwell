@@ -104,7 +104,15 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("piece.m_craftingStation = station", module)
         self.assertIn("_setStation(piece, null)", station_override)
         self.assertIn("_setStation(piece, originalStation)", station_override)
-        self.assertNotIn("GetComponent<TerrainModifier>", module)
+        self.assertIn("GetComponent<Piece>()", module)
+        self.assertIn("GetComponentsInChildren<Piece>(true)", module)
+        self.assertIn("GetComponentsInChildren<TerrainModifier>(true)", module)
+        self.assertIn("PavedRoadCandidateSelector.Select", module)
+        self.assertIn("HasRootPiece", station_override)
+        self.assertIn("PavedTerrainModifierCount == 1", station_override)
+        self.assertIn("ResourceRequirementCount == 1", station_override)
+        self.assertIn("SingleUnitResourceRequirementCount == 1", station_override)
+        self.assertIn("SingleUnitStoneResourceRequirementCount == 1", station_override)
         combined = module + station_override
         for removed in ("HaveRequirementsTranspiler", "AdjustStationSatisfied", "ResolveStationSatisfied", "ShouldIgnoreStationRange", "HaveBuildStationInRange"):
             self.assertNotIn(removed, combined)
@@ -119,14 +127,19 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("TerrainSurface.Cultivated", core)
         self.assertIn("TerrainSurface.NonTerrain", core)
         self.assertIn("NaturalGapHoldSeconds = 0.18d", module)
-        for marker in ('"paved_road"', '"$piece_pavedroad"', '"(Clone)"'):
-            self.assertIn(marker, station_override)
-        for removed_station_gate in ("VanillaStationPrefabName", "VanillaStationDisplayName", "IsExactStonecutter", "_stationPrefabName", "_stationDisplayName"):
-            self.assertNotIn(removed_station_gate, station_override + module)
+        self.assertIn('string.Equals(name, "Stone", StringComparison.Ordinal)', module)
+        self.assertIn('string.Equals(name, "Stone(Clone)", StringComparison.Ordinal)', module)
+        for removed_identity_gate in (
+            "VanillaPrefabName", "VanillaDisplayName", "RuntimeCloneSuffix", "IsExactPavedRoad",
+            "VanillaStationPrefabName", "VanillaStationDisplayName", "IsExactStonecutter",
+            "_stationPrefabName", "_stationDisplayName",
+        ):
+            self.assertNotIn(removed_identity_gate, station_override + module)
         for diagnostic in (
-            "Paved Road station field removed",
-            "Paved Road station field was already absent",
-            "No exact Paved Road candidate was found",
+            "Semantic Paved Road candidate found",
+            "station field removed",
+            "Paved Road semantic discovery was",
+            "Candidate shapes",
         ):
             self.assertIn(diagnostic, module)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
@@ -141,8 +154,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "ExpectedSha256", "ExpectedMvid", "PieceTable", "UpdateAvailable", "ZNetScene", "OnDestroy",
             "SetPlaceMode", "GetBuildTool", "UpdateAvailablePiecesList", "HaveRequirements", "UpdatePlacement",
             "GetRunSpeedFactor", "ModifyRunStaminaDrain", "GetPaintMask", "m_character",
-            "m_localPlayer", "m_pieces", "m_craftingStation", "m_paintMaskDirt",
-            "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType",
+            "m_localPlayer", "m_pieces", "m_craftingStation", "m_resources", "m_resItem", "m_amount",
+            "m_paintType", "GetComponent", "m_paintMaskDirt", "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType",
         ):
             self.assertIn(marker, compatibility_test)
         for marker in ("RequireMethod", "RequireField", "RequireColor"):

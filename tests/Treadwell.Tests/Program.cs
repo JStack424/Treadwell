@@ -13,7 +13,7 @@ namespace Treadwell.Tests
             TuningTests();
             HysteresisTests();
             PavedRoadPlacementTests();
-            Console.WriteLine(_passed + "/46 core tests passed");
+            Console.WriteLine(_passed + "/56 core tests passed");
             return 0;
         }
 
@@ -113,10 +113,77 @@ namespace Treadwell.Tests
 
         private static void PavedRoadPlacementTests()
         {
-            Run("exact paved road removes whatever station object is attached", () =>
+            Run("semantic candidate does not depend on prefab or display names", () =>
+            {
+                var selection = Select(Candidate());
+                Equal(PavedRoadDiscoveryOutcome.Unique, selection.Outcome);
+                Equal(0, selection.CandidateIndex);
+            });
+            Run("nested paved terrain operation is eligible", () =>
+            {
+                var shape = Candidate(terrainModifierCount: 2, pavedTerrainModifierCount: 1);
+                Equal(true, shape.IsSemanticCandidate);
+            });
+            Run("unique semantic candidate wins among unrelated entries", () =>
+            {
+                var selection = Select(
+                    Candidate(pavedTerrainModifierCount: 0),
+                    Candidate(),
+                    Candidate(hasStationRequirement: false));
+                Equal(PavedRoadDiscoveryOutcome.Unique, selection.Outcome);
+                Equal(1, selection.CandidateIndex);
+            });
+            Run("zero semantic candidates fails closed", () =>
+            {
+                var selection = Select(Candidate(pavedTerrainModifierCount: 0));
+                Equal(PavedRoadDiscoveryOutcome.None, selection.Outcome);
+                Equal(-1, selection.CandidateIndex);
+                Equal(0, selection.CandidateCount);
+            });
+            Run("multiple semantic candidates fail closed", () =>
+            {
+                var selection = Select(Candidate(), Candidate());
+                Equal(PavedRoadDiscoveryOutcome.Ambiguous, selection.Outcome);
+                Equal(-1, selection.CandidateIndex);
+                Equal(2, selection.CandidateCount);
+            });
+            Run("stationless unowned entry is rejected", () =>
+                Equal(false, Candidate(hasStationRequirement: false).IsSemanticCandidate));
+            Run("owned station removal remains discoverable", () =>
+                Equal(true, Candidate(hasStationRequirement: true).IsSemanticCandidate));
+            Run("non-paved terrain operation is rejected", () =>
+                Equal(false, Candidate(pavedTerrainModifierCount: 0).IsSemanticCandidate));
+            Run("multiple paved operations are rejected", () =>
+                Equal(false, Candidate(terrainModifierCount: 2, pavedTerrainModifierCount: 2).IsSemanticCandidate));
+            Run("missing resource requirement is rejected", () =>
+                Equal(false, Candidate(resourceRequirementCount: 0, singleUnitResourceRequirementCount: 0).IsSemanticCandidate));
+            Run("multiple resource requirements are rejected", () =>
+                Equal(false, Candidate(resourceRequirementCount: 2, singleUnitResourceRequirementCount: 2).IsSemanticCandidate));
+            Run("non-unit stone resource amount is rejected", () =>
+                Equal(false, Candidate(singleUnitResourceRequirementCount: 0, singleUnitStoneResourceRequirementCount: 0).IsSemanticCandidate));
+            Run("one-unit non-stone resource is rejected", () =>
+                Equal(false, Candidate(singleUnitResourceRequirementCount: 1, singleUnitStoneResourceRequirementCount: 0).IsSemanticCandidate));
+            Run("multiple Piece components are rejected", () =>
+                Equal(false, Candidate(pieceComponentCount: 2).IsSemanticCandidate));
+            Run("single Piece that is not on the table-entry root is rejected", () =>
+                Equal(false, Candidate(hasRootPiece: false).IsSemanticCandidate));
+            Run("additional non-paved terrain helpers do not hide one paved operation", () =>
+                Equal(true, Candidate(terrainModifierCount: 3, pavedTerrainModifierCount: 1).IsSemanticCandidate));
+            Run("null candidate list is rejected", () =>
+            {
+                try
+                {
+                    PavedRoadCandidateSelector.Select(null!);
+                    throw new InvalidOperationException("Expected ArgumentNullException.");
+                }
+                catch (ArgumentNullException)
+                {
+                }
+            });
+            Run("selected paved road removes whatever station object is attached", () =>
             {
                 var station = new FakeStation("runtime-station-with-unexpected-identity");
-                var piece = ExactPiece(station);
+                var piece = new FakePiece(station);
                 var stationOverride = NewStationOverride();
                 Equal(StationOverrideApplyResult.Removed, stationOverride.Apply(piece));
                 Equal(true, piece.Station == null);
@@ -124,36 +191,14 @@ namespace Treadwell.Tests
             Run("station object names are never consulted", () =>
             {
                 var station = new FakeStation(null);
-                var piece = ExactPiece(station);
+                var piece = new FakePiece(station);
                 Equal(StationOverrideApplyResult.Removed, NewStationOverride().Apply(piece));
                 Equal(true, piece.Station == null);
-            });
-            Run("ordinary Unity runtime clone name is exact paved road", () =>
-            {
-                var piece = ExactPiece(ExactStation());
-                piece.PrefabName += PavedRoadStationOverride<FakePiece, FakeStation>.RuntimeCloneSuffix;
-                Equal(StationOverrideApplyResult.Removed, NewStationOverride().Apply(piece));
-                Equal(true, piece.Station == null);
-            });
-            Run("clone normalization removes only one exact suffix", () =>
-            {
-                Equal("paved_road", PavedRoadStationOverride<FakePiece, FakeStation>.NormalizePrefabName("paved_road(Clone)")!);
-                Equal("paved_road(Clone)", PavedRoadStationOverride<FakePiece, FakeStation>.NormalizePrefabName("paved_road(Clone)(Clone)")!);
-                Equal("paved_road ", PavedRoadStationOverride<FakePiece, FakeStation>.NormalizePrefabName("paved_road (Clone)")!);
             });
             Run("restore returns the exact captured station object", () =>
             {
                 var station = ExactStation();
-                var piece = ExactPiece(station);
-                var stationOverride = NewStationOverride();
-                stationOverride.Apply(piece);
-                Equal(StationOverrideRestoreResult.Restored, stationOverride.Restore());
-                Equal(station, piece.Station!);
-            });
-            Run("setting disable restores the captured station", () =>
-            {
-                var station = ExactStation();
-                var piece = ExactPiece(station);
+                var piece = new FakePiece(station);
                 var stationOverride = NewStationOverride();
                 stationOverride.Apply(piece);
                 Equal(StationOverrideRestoreResult.Restored, stationOverride.Restore());
@@ -161,7 +206,7 @@ namespace Treadwell.Tests
             });
             Run("repeated apply is idempotent", () =>
             {
-                var piece = ExactPiece(ExactStation());
+                var piece = new FakePiece(ExactStation());
                 var stationOverride = NewStationOverride();
                 Equal(StationOverrideApplyResult.Removed, stationOverride.Apply(piece));
                 Equal(StationOverrideApplyResult.AlreadyAbsent, stationOverride.Apply(piece));
@@ -170,9 +215,9 @@ namespace Treadwell.Tests
             Run("piece-table replacement restores old piece before changing new piece", () =>
             {
                 var firstStation = ExactStation();
-                var firstPiece = ExactPiece(firstStation);
+                var firstPiece = new FakePiece(firstStation);
                 var secondStation = ExactStation();
-                var secondPiece = ExactPiece(secondStation);
+                var secondPiece = new FakePiece(secondStation);
                 var stationOverride = NewStationOverride();
                 stationOverride.Apply(firstPiece);
                 Equal(StationOverrideApplyResult.Removed, stationOverride.Apply(secondPiece));
@@ -181,61 +226,21 @@ namespace Treadwell.Tests
                 Equal(StationOverrideRestoreResult.Restored, stationOverride.Restore());
                 Equal(secondStation, secondPiece.Station!);
             });
-            Run("stationless runtime clone does not displace live prefab ownership", () =>
+            Run("stationless runtime object does not displace live prefab ownership", () =>
             {
                 var station = ExactStation();
-                var prefab = ExactPiece(station);
-                var clone = ExactPiece(null);
-                clone.PrefabName += "(Clone)";
+                var prefab = new FakePiece(station);
+                var stationless = new FakePiece(null);
                 var stationOverride = NewStationOverride();
                 stationOverride.Apply(prefab);
-                Equal(StationOverrideApplyResult.AlreadyAbsent, stationOverride.Apply(clone));
+                Equal(StationOverrideApplyResult.AlreadyAbsent, stationOverride.Apply(stationless));
                 Equal(true, stationOverride.IsAppliedTo(prefab));
                 Equal(StationOverrideRestoreResult.Restored, stationOverride.Restore());
                 Equal(station, prefab.Station!);
             });
-            Run("unrelated piece prefab stays unchanged", () =>
-            {
-                var station = ExactStation();
-                var piece = ExactPiece(station);
-                piece.PrefabName = "stone_floor_2x2";
-                Equal(StationOverrideApplyResult.NotExactPavedRoad, NewStationOverride().Apply(piece));
-                Equal(station, piece.Station!);
-            });
-            Run("unrelated piece display name stays unchanged", () =>
-            {
-                var station = ExactStation();
-                var piece = ExactPiece(station);
-                piece.DisplayName = "$piece_stonefloor";
-                Equal(StationOverrideApplyResult.NotExactPavedRoad, NewStationOverride().Apply(piece));
-                Equal(station, piece.Station!);
-            });
-            Run("lookalike clone name stays unchanged", () =>
-            {
-                var station = ExactStation();
-                var piece = ExactPiece(station);
-                piece.PrefabName = "custom_paved_road(Clone)";
-                Equal(StationOverrideApplyResult.NotExactPavedRoad, NewStationOverride().Apply(piece));
-                Equal(station, piece.Station!);
-            });
-            Run("already stationless piece is reported without ownership", () =>
-            {
-                var piece = ExactPiece(null);
-                var stationOverride = NewStationOverride();
-                Equal(StationOverrideApplyResult.AlreadyAbsent, stationOverride.Apply(piece));
-                Equal(false, stationOverride.IsApplied);
-            });
-            Run("identity matching remains ordinal and case-sensitive", () =>
-            {
-                var station = ExactStation();
-                var piece = ExactPiece(station);
-                piece.PrefabName = "Paved_Road";
-                Equal(StationOverrideApplyResult.NotExactPavedRoad, NewStationOverride().Apply(piece));
-                Equal(station, piece.Station!);
-            });
             Run("active override refuses an unexpected replacement station", () =>
             {
-                var piece = ExactPiece(ExactStation());
+                var piece = new FakePiece(ExactStation());
                 var stationOverride = NewStationOverride();
                 stationOverride.Apply(piece);
                 var replacement = new FakeStation("other-mod-station");
@@ -245,7 +250,7 @@ namespace Treadwell.Tests
             });
             Run("restore never overwrites another runtime station change", () =>
             {
-                var piece = ExactPiece(ExactStation());
+                var piece = new FakePiece(ExactStation());
                 var stationOverride = NewStationOverride();
                 stationOverride.Apply(piece);
                 var replacement = new FakeStation("custom-station");
@@ -257,7 +262,7 @@ namespace Treadwell.Tests
             Run("restore accepts an already restored original", () =>
             {
                 var station = ExactStation();
-                var piece = ExactPiece(station);
+                var piece = new FakePiece(station);
                 var stationOverride = NewStationOverride();
                 stationOverride.Apply(piece);
                 piece.Station = station;
@@ -265,35 +270,47 @@ namespace Treadwell.Tests
                 Equal(station, piece.Station!);
                 Equal(false, stationOverride.IsApplied);
             });
+            Run("null piece is rejected without mutation", () =>
+                Equal(StationOverrideApplyResult.InvalidPiece, NewStationOverride().Apply(null!)));
         }
+
+        private static PavedRoadCandidateShape Candidate(
+            int pieceComponentCount = 1,
+            bool hasRootPiece = true,
+            int terrainModifierCount = 1,
+            int pavedTerrainModifierCount = 1,
+            bool hasStationRequirement = true,
+            int resourceRequirementCount = 1,
+            int singleUnitResourceRequirementCount = 1,
+            int singleUnitStoneResourceRequirementCount = 1)
+            => new PavedRoadCandidateShape(
+                pieceComponentCount,
+                hasRootPiece,
+                terrainModifierCount,
+                pavedTerrainModifierCount,
+                hasStationRequirement,
+                resourceRequirementCount,
+                singleUnitResourceRequirementCount,
+                singleUnitStoneResourceRequirementCount);
+
+        private static PavedRoadCandidateSelection Select(params PavedRoadCandidateShape[] candidates)
+            => PavedRoadCandidateSelector.Select(candidates);
 
         private static PavedRoadStationOverride<FakePiece, FakeStation> NewStationOverride()
             => new PavedRoadStationOverride<FakePiece, FakeStation>(
-                piece => piece.PrefabName,
-                piece => piece.DisplayName,
                 piece => piece.Station,
                 (piece, station) => piece.Station = station);
 
         private static FakeStation ExactStation()
             => new FakeStation("captured-station");
 
-        private static FakePiece ExactPiece(FakeStation? station)
-            => new FakePiece(
-                PavedRoadStationOverride<FakePiece, FakeStation>.VanillaPrefabName,
-                PavedRoadStationOverride<FakePiece, FakeStation>.VanillaDisplayName,
-                station);
-
         private sealed class FakePiece
         {
-            internal FakePiece(string prefabName, string displayName, FakeStation? station)
+            internal FakePiece(FakeStation? station)
             {
-                PrefabName = prefabName;
-                DisplayName = displayName;
                 Station = station;
             }
 
-            internal string PrefabName { get; set; }
-            internal string DisplayName { get; set; }
             internal FakeStation? Station { get; set; }
         }
 

@@ -50,6 +50,10 @@ namespace Treadwell.Compatibility.Tests
             contract.Field("PieceTable", "m_pieces", "System.Collections.Generic.List`1<UnityEngine.GameObject>", FieldAttributes.Public);
             contract.Field("Piece", "m_name", "System.String", FieldAttributes.Public);
             contract.Field("Piece", "m_craftingStation", "CraftingStation", FieldAttributes.Public);
+            contract.Field("Piece", "m_resources", "Requirement[]", FieldAttributes.Public);
+            contract.NestedField("Piece", "Requirement", "m_resItem", "ItemDrop", FieldAttributes.Public);
+            contract.NestedField("Piece", "Requirement", "m_amount", "System.Int32", FieldAttributes.Public);
+            contract.Field("TerrainModifier", "m_paintType", "PaintType", FieldAttributes.Public);
             contract.Field("SEMan", "m_character", "Character", FieldAttributes.Private);
             contract.Field("Heightmap", "m_paintMaskDirt", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
             contract.Field("Heightmap", "m_paintMaskCultivated", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
@@ -64,6 +68,10 @@ namespace Treadwell.Compatibility.Tests
             contract.RequirementCallSite(
                 "Player", "UpdatePlacement", new[] { "System.Boolean", "System.Single" },
                 expectedMode: 0, requireTryPlaceAfter: true);
+            contract.GenericMethodCall(
+                "PieceTable", "UpdateAvailable", "System.Void",
+                new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" },
+                "UnityEngine.GameObject", "GetComponent", "Piece");
             contract.MethodCalls(
                 "Player", "SetPlaceMode", "System.Void", new[] { "PieceTable" },
                 "Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>());
@@ -78,7 +86,7 @@ namespace Treadwell.Compatibility.Tests
                 ["Cultivate"] = 1,
                 ["Paved"] = 2
             });
-            Console.WriteLine(_passed + "/30 compatibility contract checks passed");
+            Console.WriteLine(_passed + "/35 compatibility contract checks passed");
             return 0;
         }
 
@@ -255,6 +263,48 @@ namespace Treadwell.Compatibility.Tests
                     throw new InvalidOperationException(typeName + "." + fieldName + " signature/attributes mismatch");
                 _passed++;
                 Console.WriteLine("PASS field " + typeName + "." + fieldName);
+            }
+
+            internal void NestedField(
+                string outerName, string nestedName, string fieldName, string fieldType, FieldAttributes required)
+            {
+                var outer = _reader.GetTypeDefinition(FindTopLevelHandle(outerName));
+                var nested = outer.GetNestedTypes()
+                    .Select(handle => _reader.GetTypeDefinition(handle))
+                    .Single(type => _reader.GetString(type.Name) == nestedName);
+                var field = nested.GetFields()
+                    .Select(handle => _reader.GetFieldDefinition(handle))
+                    .Single(value => _reader.GetString(value.Name) == fieldName &&
+                                     value.DecodeSignature(_provider, null) == fieldType);
+                if ((field.Attributes & required) != required)
+                    throw new InvalidOperationException(outerName + "." + nestedName + "." + fieldName + " signature/attributes mismatch");
+                _passed++;
+                Console.WriteLine("PASS field " + outerName + "." + nestedName + "." + fieldName);
+            }
+
+            internal void GenericMethodCall(
+                string sourceType, string sourceName, string sourceReturn, string[] sourceParameters,
+                string targetType, string targetName, string genericArgument)
+            {
+                var source = FindMethodHandle(sourceType, sourceName, sourceReturn, sourceParameters);
+                var matches = Enumerable.Range(1, _reader.GetTableRowCount(TableIndex.MethodSpec))
+                    .Select(MetadataTokens.MethodSpecificationHandle)
+                    .Where(handle =>
+                {
+                    var specification = _reader.GetMethodSpecification(handle);
+                    if (specification.Method.Kind != HandleKind.MemberReference) return false;
+                    var member = _reader.GetMemberReference((MemberReferenceHandle)specification.Method);
+                    if (_reader.GetString(member.Name) != targetName || member.Parent.Kind != HandleKind.TypeReference) return false;
+                    var parent = _reader.GetTypeReference((TypeReferenceHandle)member.Parent);
+                    var parentNamespace = _reader.GetString(parent.Namespace);
+                    var parentName = (string.IsNullOrEmpty(parentNamespace) ? "" : parentNamespace + ".") + _reader.GetString(parent.Name);
+                    var arguments = specification.DecodeSignature(_provider, null);
+                    return parentName == targetType && arguments.SequenceEqual(new[] { genericArgument });
+                }).ToArray();
+                if (matches.Length != 1)
+                    throw new InvalidOperationException(sourceType + "." + sourceName + " generic target mismatch: " + matches.Length);
+                RequireInstructionToken(source, new byte[] { 0x28, 0x6f }, MetadataTokens.GetToken(matches[0]),
+                    sourceType + "." + sourceName + " calls " + targetType + "." + targetName + "<" + genericArgument + ">");
             }
 
             internal void MethodReadsField(

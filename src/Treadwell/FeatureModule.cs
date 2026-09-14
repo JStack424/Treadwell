@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
@@ -94,7 +95,7 @@ namespace Treadwell
         private bool _pavedSettingSubscribed;
         private bool _loggedStationRemoved;
         private bool _loggedStationAlreadyAbsent;
-        private bool _loggedCandidateMissing;
+        private bool _loggedDiscoveryFailure;
         private bool _loggedStationConflict;
 
         internal RoadFeatureModule(
@@ -113,8 +114,6 @@ namespace Treadwell
             _pavedSpeed = pavedSpeed ?? throw new ArgumentNullException(nameof(pavedSpeed));
             _pavedStamina = pavedStamina ?? throw new ArgumentNullException(nameof(pavedStamina));
             _stationOverride = new PavedRoadStationOverride<Piece, CraftingStation>(
-                piece => piece.gameObject != null ? piece.gameObject.name : null,
-                piece => piece.m_name,
                 piece => piece.m_craftingStation,
                 (piece, station) => piece.m_craftingStation = station);
         }
@@ -144,6 +143,14 @@ namespace Treadwell
             CompatibilityGate.RequireField(failures, typeof(Piece), "m_name", typeof(string),
                 BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireField(failures, typeof(Piece), "m_craftingStation", typeof(CraftingStation),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(Piece), "m_resources", typeof(Piece.Requirement[]),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(Piece.Requirement), "m_resItem", typeof(ItemDrop),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(Piece.Requirement), "m_amount", typeof(int),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(TerrainModifier), "m_paintType", typeof(TerrainModifier.PaintType),
                 BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "GetRunSpeedFactor", typeof(float),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
@@ -236,7 +243,8 @@ namespace Treadwell
 
         private static void PlayerHaveRequirementsPrefix(Piece __0)
         {
-            _activeModule?.ApplyPavedRoadStationOverride(__0, reportNearMiss: true);
+            // Re-discover from the active tool table rather than trusting an arbitrary Piece argument.
+            _activeModule?.RefreshCurrentBuildPieces();
         }
 
         private static void ZNetSceneOnDestroyPrefix()
@@ -297,19 +305,25 @@ namespace Treadwell
                 return;
             }
 
-            var piece = FindPavedRoadPiece(table, out var nearMatchFound);
-            if (piece == null)
+            var entries = InspectPieceTable(table);
+            var shapes = new List<PavedRoadCandidateShape>(entries.Count);
+            foreach (var entry in entries) shapes.Add(entry.Shape);
+            var selection = PavedRoadCandidateSelector.Select(shapes);
+            if (selection.Outcome != PavedRoadDiscoveryOutcome.Unique)
             {
-                if (reportMissingCandidate && (nearMatchFound || IsLikelyHoePieceTable(table)))
-                    LogCandidateMissingOnce();
+                RestorePavedRoadStation();
+                if (ReferenceEquals(_lastPieceTable, table)) _lastPieceTable = null;
+                if (reportMissingCandidate && ShouldReportDiscoveryFailure(table, entries))
+                    LogDiscoveryFailureOnce(table, selection, entries);
                 return;
             }
 
+            var selected = entries[selection.CandidateIndex];
             _lastPieceTable = table;
-            ApplyPavedRoadStationOverride(piece, reportNearMiss: false);
+            ApplyPavedRoadStationOverride(selected.Piece, selected.Describe());
         }
 
-        private void ApplyPavedRoadStationOverride(Piece piece, bool reportNearMiss)
+        private void ApplyPavedRoadStationOverride(Piece piece, string candidateDescription)
         {
             if (!_pavedRoadWithoutStonecutter.Value || piece == null) return;
 
@@ -320,14 +334,16 @@ namespace Treadwell
                     if (!_loggedStationRemoved)
                     {
                         _loggedStationRemoved = true;
-                        Log.LogInfo("Paved Road station field removed; no nearby stonecutter is now required.");
+                        Log.LogInfo("Semantic Paved Road candidate found " + candidateDescription +
+                                    "; station field removed, so no nearby stonecutter is required.");
                     }
                     break;
                 case StationOverrideApplyResult.AlreadyAbsent:
                     if (!_loggedStationAlreadyAbsent)
                     {
                         _loggedStationAlreadyAbsent = true;
-                        Log.LogInfo("Paved Road station field was already absent; no change was needed.");
+                        Log.LogInfo("Semantic Paved Road candidate found " + candidateDescription +
+                                    "; its station field was already absent, so no change was needed.");
                     }
                     break;
                 case StationOverrideApplyResult.Conflict:
@@ -337,32 +353,74 @@ namespace Treadwell
                         Log.LogWarning("Paved Road station field changed while Treadwell was active; the conflicting value was left untouched.");
                     }
                     break;
-                case StationOverrideApplyResult.NotExactPavedRoad:
-                    if (reportNearMiss && IsNearPavedRoadPiece(piece)) LogCandidateMissingOnce();
-                    break;
+                case StationOverrideApplyResult.InvalidPiece:
+                    throw new InvalidOperationException("Semantic Paved Road discovery returned an invalid piece.");
             }
         }
 
-        private Piece FindPavedRoadPiece(PieceTable table, out bool nearMatchFound)
+        private List<PieceTableEntryInspection> InspectPieceTable(PieceTable table)
         {
-            nearMatchFound = false;
-            if (table.m_pieces == null) return null;
+            var entries = new List<PieceTableEntryInspection>();
+            if (table.m_pieces == null) return entries;
+
             foreach (var pieceObject in table.m_pieces)
             {
                 if (pieceObject == null) continue;
-                var piece = pieceObject.GetComponent<Piece>();
-                if (_stationOverride.IsExactPavedRoad(piece)) return piece;
-                if (IsNearPavedRoadPiece(piece)) nearMatchFound = true;
+                var rootPiece = pieceObject.GetComponent<Piece>();
+                var pieces = pieceObject.GetComponentsInChildren<Piece>(true);
+                var modifiers = pieceObject.GetComponentsInChildren<TerrainModifier>(true);
+                var piece = pieces.Length == 1 && ReferenceEquals(pieces[0], rootPiece) ? rootPiece : null;
+                var pavedModifierCount = 0;
+                foreach (var modifier in modifiers)
+                {
+                    if (modifier != null && modifier.m_paintType == TerrainModifier.PaintType.Paved)
+                        pavedModifierCount++;
+                }
+
+                var requirements = piece != null ? piece.m_resources : null;
+                var resourceCount = requirements != null ? requirements.Length : 0;
+                var singleUnitResourceCount = 0;
+                var singleUnitStoneResourceCount = 0;
+                if (requirements != null)
+                {
+                    foreach (var requirement in requirements)
+                    {
+                        if (requirement == null || requirement.m_resItem == null || requirement.m_amount != 1) continue;
+                        singleUnitResourceCount++;
+                        if (IsExpectedStoneResource(requirement.m_resItem)) singleUnitStoneResourceCount++;
+                    }
+                }
+
+                var shape = new PavedRoadCandidateShape(
+                    pieces.Length,
+                    piece != null,
+                    modifiers.Length,
+                    pavedModifierCount,
+                    piece != null && (piece.m_craftingStation != null || _stationOverride.IsAppliedTo(piece)),
+                    resourceCount,
+                    singleUnitResourceCount,
+                    singleUnitStoneResourceCount);
+                entries.Add(new PieceTableEntryInspection(pieceObject, pieces, modifiers, shape));
             }
-            return null;
+            return entries;
         }
 
-        private static bool IsNearPavedRoadPiece(Piece piece)
+        private static bool IsExpectedStoneResource(ItemDrop resource)
         {
-            if (piece == null || piece.gameObject == null) return false;
-            var prefabName = PavedRoadStationOverride<Piece, CraftingStation>.NormalizePrefabName(piece.gameObject.name);
-            return string.Equals(prefabName, PavedRoadStationOverride<Piece, CraftingStation>.VanillaPrefabName, StringComparison.Ordinal) ||
-                   string.Equals(piece.m_name, PavedRoadStationOverride<Piece, CraftingStation>.VanillaDisplayName, StringComparison.Ordinal);
+            if (resource == null || resource.gameObject == null) return false;
+            var name = resource.gameObject.name;
+            return string.Equals(name, "Stone", StringComparison.Ordinal) ||
+                   string.Equals(name, "Stone(Clone)", StringComparison.Ordinal);
+        }
+
+        private static bool ShouldReportDiscoveryFailure(PieceTable table, List<PieceTableEntryInspection> entries)
+        {
+            if (IsLikelyHoePieceTable(table)) return true;
+            foreach (var entry in entries)
+            {
+                if (entry.Shape.PavedTerrainModifierCount > 0) return true;
+            }
+            return false;
         }
 
         private static bool IsLikelyHoePieceTable(PieceTable table)
@@ -371,11 +429,108 @@ namespace Treadwell
             return name != null && name.IndexOf("hoe", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private void LogCandidateMissingOnce()
+        private void LogDiscoveryFailureOnce(
+            PieceTable table,
+            PavedRoadCandidateSelection selection,
+            List<PieceTableEntryInspection> entries)
         {
-            if (_loggedCandidateMissing) return;
-            _loggedCandidateMissing = true;
-            Log.LogWarning("No exact Paved Road candidate was found in the active hoe piece table; the vanilla stonecutter requirement remains unchanged.");
+            if (_loggedDiscoveryFailure) return;
+            _loggedDiscoveryFailure = true;
+            var outcome = selection.Outcome == PavedRoadDiscoveryOutcome.Ambiguous
+                ? "ambiguous (" + selection.CandidateCount + " semantic matches)"
+                : "no semantic match";
+            var tableName = table != null && table.gameObject != null ? SanitizeDiagnostic(table.gameObject.name) : "<unnamed>";
+            var text = new StringBuilder();
+            var shown = Math.Min(entries.Count, 12);
+            for (var index = 0; index < shown; index++)
+            {
+                if (index > 0) text.Append("; ");
+                text.Append(entries[index].Describe());
+            }
+            if (entries.Count > shown) text.Append("; +").Append(entries.Count - shown).Append(" more");
+            Log.LogWarning("Paved Road semantic discovery was " + outcome + " in active table '" + tableName +
+                           "'; vanilla station requirements remain unchanged. Candidate shapes: " + text);
+        }
+
+        private static string SanitizeDiagnostic(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "<none>";
+            var safe = value.Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
+            return safe.Length <= 64 ? safe : safe.Substring(0, 64) + "...";
+        }
+
+        private sealed class PieceTableEntryInspection
+        {
+            internal PieceTableEntryInspection(
+                GameObject root,
+                Piece[] pieces,
+                TerrainModifier[] modifiers,
+                PavedRoadCandidateShape shape)
+            {
+                Root = root;
+                Pieces = pieces;
+                Modifiers = modifiers;
+                Shape = shape;
+            }
+
+            internal GameObject Root { get; }
+            internal Piece[] Pieces { get; }
+            internal TerrainModifier[] Modifiers { get; }
+            internal PavedRoadCandidateShape Shape { get; }
+            internal Piece Piece => Pieces.Length == 1 ? Pieces[0] : null;
+
+            internal string Describe()
+            {
+                var piece = Piece;
+                var text = new StringBuilder("[root='");
+                text.Append(SanitizeDiagnostic(Root != null ? Root.name : null));
+                text.Append("', pieces=").Append(Pieces.Length);
+                text.Append(", piece='").Append(SanitizeDiagnostic(piece != null ? piece.m_name : null)).Append("'");
+                text.Append(", station='");
+                text.Append(SanitizeDiagnostic(piece != null && piece.m_craftingStation != null && piece.m_craftingStation.gameObject != null
+                    ? piece.m_craftingStation.gameObject.name
+                    : null));
+                text.Append("', terrain=");
+                AppendTerrainSummary(text, Modifiers);
+                text.Append(", resources=");
+                AppendResourceSummary(text, piece != null ? piece.m_resources : null);
+                text.Append(']');
+                return text.ToString();
+            }
+
+            private static void AppendTerrainSummary(StringBuilder text, TerrainModifier[] modifiers)
+            {
+                text.Append('[');
+                var shown = Math.Min(modifiers.Length, 4);
+                for (var index = 0; index < shown; index++)
+                {
+                    if (index > 0) text.Append(',');
+                    text.Append(modifiers[index] != null ? modifiers[index].m_paintType.ToString() : "<null>");
+                }
+                if (modifiers.Length > shown) text.Append(",+").Append(modifiers.Length - shown);
+                text.Append(']');
+            }
+
+            private static void AppendResourceSummary(StringBuilder text, Piece.Requirement[] requirements)
+            {
+                text.Append('[');
+                if (requirements != null)
+                {
+                    var shown = Math.Min(requirements.Length, 4);
+                    for (var index = 0; index < shown; index++)
+                    {
+                        if (index > 0) text.Append(',');
+                        var requirement = requirements[index];
+                        var itemName = requirement != null && requirement.m_resItem != null && requirement.m_resItem.gameObject != null
+                            ? requirement.m_resItem.gameObject.name
+                            : null;
+                        text.Append(SanitizeDiagnostic(itemName)).Append(':')
+                            .Append(requirement != null ? requirement.m_amount : 0);
+                    }
+                    if (requirements.Length > shown) text.Append(",+").Append(requirements.Length - shown);
+                }
+                text.Append(']');
+            }
         }
 
         private void RestorePavedRoadStation()
