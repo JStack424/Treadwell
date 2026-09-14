@@ -91,10 +91,15 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("PieceTableUpdateAvailablePrefix", module)
         self.assertNotIn("PieceTableUpdateAvailablePostfix", module)
         self.assertIn("RefreshPlayerAvailablePieces", module)
+        self.assertIn('typeof(Player), "SetPlaceMode"', module)
+        self.assertIn("PlayerSetPlaceModePrefix", module)
+        self.assertIn('typeof(Player), "GetBuildTool"', module)
         self.assertIn('typeof(Player), "UpdateAvailablePiecesList"', module)
+        self.assertIn('typeof(Player), "HaveRequirements"', module)
+        self.assertIn("PlayerHaveRequirementsPrefix", module)
         self.assertIn('typeof(ZNetScene), "OnDestroy"', module)
         self.assertIn("ZNetSceneOnDestroyPrefix", module)
-        self.assertIn('typeof(Player), "GetBuildPieces"', module)
+        self.assertNotIn('typeof(Player), "GetBuildPieces"', module)
         self.assertIn('typeof(PieceTable), "m_pieces"', module)
         self.assertIn("piece.m_craftingStation = station", module)
         self.assertIn("_setStation(piece, null)", station_override)
@@ -114,8 +119,16 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("TerrainSurface.Cultivated", core)
         self.assertIn("TerrainSurface.NonTerrain", core)
         self.assertIn("NaturalGapHoldSeconds = 0.18d", module)
-        for marker in ('"paved_road"', '"$piece_pavedroad"', '"piece_stonecutter"', '"$piece_stonecutter"'):
+        for marker in ('"paved_road"', '"$piece_pavedroad"', '"(Clone)"'):
             self.assertIn(marker, station_override)
+        for removed_station_gate in ("VanillaStationPrefabName", "VanillaStationDisplayName", "IsExactStonecutter", "_stationPrefabName", "_stationDisplayName"):
+            self.assertNotIn(removed_station_gate, station_override + module)
+        for diagnostic in (
+            "Paved Road station field removed",
+            "Paved Road station field was already absent",
+            "No exact Paved Road candidate was found",
+        ):
+            self.assertIn(diagnostic, module)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
 
     def test_exact_game_contract_is_checked_offline_and_at_runtime(self):
@@ -126,7 +139,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn(f"tests/$identifier.Compatibility.Tests/$identifier.Compatibility.Tests.csproj", build)
         for marker in (
             "ExpectedSha256", "ExpectedMvid", "PieceTable", "UpdateAvailable", "ZNetScene", "OnDestroy",
-            "GetBuildPieces", "UpdateAvailablePiecesList", "GetRunSpeedFactor", "ModifyRunStaminaDrain", "GetPaintMask", "m_character",
+            "SetPlaceMode", "GetBuildTool", "UpdateAvailablePiecesList", "HaveRequirements", "UpdatePlacement",
+            "GetRunSpeedFactor", "ModifyRunStaminaDrain", "GetPaintMask", "m_character",
             "m_localPlayer", "m_pieces", "m_craftingStation", "m_paintMaskDirt",
             "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType",
         ):

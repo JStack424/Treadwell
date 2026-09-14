@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 
@@ -31,8 +32,11 @@ namespace Treadwell.Compatibility.Tests
             contract.Method("PieceTable", "UpdateAvailable", "System.Void",
                 new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" }, MethodAttributes.Public);
             contract.Method("ZNetScene", "OnDestroy", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
-            contract.Method("Player", "GetBuildPieces", "System.Collections.Generic.List`1<Piece>", Array.Empty<string>(), MethodAttributes.Public);
+            contract.Method("Player", "SetPlaceMode", "System.Void", new[] { "PieceTable" }, MethodAttributes.Family | MethodAttributes.Virtual);
+            contract.Method("Player", "GetBuildTool", "PieceTable", Array.Empty<string>(), MethodAttributes.Public);
             contract.Method("Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
+            contract.Method("Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" }, MethodAttributes.Public);
+            contract.Method("Player", "UpdatePlacement", "System.Void", new[] { "System.Boolean", "System.Single" }, MethodAttributes.Private);
             contract.Method("Player", "GetRunSpeedFactor", "System.Single", Array.Empty<string>(),
                 MethodAttributes.Family | MethodAttributes.Virtual);
             contract.Method("SEMan", "ModifyRunStaminaDrain", "System.Void",
@@ -46,11 +50,27 @@ namespace Treadwell.Compatibility.Tests
             contract.Field("PieceTable", "m_pieces", "System.Collections.Generic.List`1<UnityEngine.GameObject>", FieldAttributes.Public);
             contract.Field("Piece", "m_name", "System.String", FieldAttributes.Public);
             contract.Field("Piece", "m_craftingStation", "CraftingStation", FieldAttributes.Public);
-            contract.Field("CraftingStation", "m_name", "System.String", FieldAttributes.Public);
             contract.Field("SEMan", "m_character", "Character", FieldAttributes.Private);
             contract.Field("Heightmap", "m_paintMaskDirt", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
             contract.Field("Heightmap", "m_paintMaskCultivated", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
             contract.Field("Heightmap", "m_paintMaskPaved", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
+
+            contract.HaveRequirementsStationCallSequence();
+            contract.HaveRequirementsStationFailureBranch();
+            contract.RequirementCallSite(
+                "PieceTable", "UpdateAvailable",
+                new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" },
+                expectedMode: 2, requireTryPlaceAfter: false);
+            contract.RequirementCallSite(
+                "Player", "UpdatePlacement", new[] { "System.Boolean", "System.Single" },
+                expectedMode: 0, requireTryPlaceAfter: true);
+            contract.MethodCalls(
+                "Player", "SetPlaceMode", "System.Void", new[] { "PieceTable" },
+                "Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>());
+            contract.MethodCalls(
+                "Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>(),
+                "PieceTable", "UpdateAvailable", "System.Void",
+                new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" });
 
             contract.EnumValues("TerrainModifier", "PaintType", new Dictionary<string, int>
             {
@@ -58,7 +78,7 @@ namespace Treadwell.Compatibility.Tests
                 ["Cultivate"] = 1,
                 ["Paved"] = 2
             });
-            Console.WriteLine(_passed + "/22 compatibility contract checks passed");
+            Console.WriteLine(_passed + "/30 compatibility contract checks passed");
             return 0;
         }
 
@@ -99,17 +119,235 @@ namespace Treadwell.Compatibility.Tests
                 Console.WriteLine("PASS method " + typeName + "." + methodName);
             }
 
+            internal void HaveRequirementsStationCallSequence()
+            {
+                var haveRequirementsHandle = FindMethodHandle(
+                    "Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" });
+                var stationMethodHandle = FindMethodHandle(
+                    "CraftingStation", "HaveBuildStationInRange", "CraftingStation",
+                    new[] { "System.String", "UnityEngine.Vector3" });
+                var implicitHandle = _reader.MemberReferences.Single(handle =>
+                {
+                    var member = _reader.GetMemberReference(handle);
+                    if (_reader.GetString(member.Name) != "op_Implicit" || member.Parent.Kind != HandleKind.TypeReference)
+                        return false;
+                    var parent = _reader.GetTypeReference((TypeReferenceHandle)member.Parent);
+                    if (_reader.GetString(parent.Namespace) != "UnityEngine" || _reader.GetString(parent.Name) != "Object")
+                        return false;
+                    var signature = member.DecodeMethodSignature(_provider, null);
+                    return signature.ReturnType == "System.Boolean" &&
+                           signature.ParameterTypes.SequenceEqual(new[] { "UnityEngine.Object" });
+                });
+
+                var firstToken = MetadataTokens.GetToken(stationMethodHandle);
+                var secondToken = MetadataTokens.GetToken(implicitHandle);
+                var pattern = new byte[10];
+                pattern[0] = 0x28;
+                BitConverter.GetBytes(firstToken).CopyTo(pattern, 1);
+                pattern[5] = 0x28;
+                BitConverter.GetBytes(secondToken).CopyTo(pattern, 6);
+
+                var il = MethodIl(haveRequirementsHandle);
+                var matches = 0;
+                for (var index = 0; index <= il.Length - pattern.Length; index++)
+                {
+                    if (il.AsSpan(index, pattern.Length).SequenceEqual(pattern)) matches++;
+                }
+                if (matches != 1)
+                    throw new InvalidOperationException("Player.HaveRequirements station call sequence mismatch: " + matches);
+                _passed++;
+                Console.WriteLine("PASS IL Player.HaveRequirements station call sequence");
+            }
+
+            internal void HaveRequirementsStationFailureBranch()
+            {
+                var haveRequirementsHandle = FindMethodHandle(
+                    "Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" });
+                var stationHandle = FindMethodHandle(
+                    "CraftingStation", "HaveBuildStationInRange", "CraftingStation",
+                    new[] { "System.String", "UnityEngine.Vector3" });
+                var zoneInstanceHandle = FindMethodHandle("ZoneSystem", "get_instance", "ZoneSystem", Array.Empty<string>());
+                var globalKeyHandle = FindMethodHandle(
+                    "ZoneSystem", "GetGlobalKey", "System.Boolean", new[] { "GlobalKeys" });
+                var implicitHandle = _reader.MemberReferences.Single(handle =>
+                {
+                    var member = _reader.GetMemberReference(handle);
+                    if (_reader.GetString(member.Name) != "op_Implicit" || member.Parent.Kind != HandleKind.TypeReference)
+                        return false;
+                    var parent = _reader.GetTypeReference((TypeReferenceHandle)member.Parent);
+                    if (_reader.GetString(parent.Namespace) != "UnityEngine" || _reader.GetString(parent.Name) != "Object")
+                        return false;
+                    var signature = member.DecodeMethodSignature(_provider, null);
+                    return signature.ReturnType == "System.Boolean" &&
+                           signature.ParameterTypes.SequenceEqual(new[] { "UnityEngine.Object" });
+                });
+
+                var il = MethodIl(haveRequirementsHandle);
+                var stationCall = FindCallOffsets(il, MetadataTokens.GetToken(stationHandle)).Single();
+                if (stationCall + 28 >= il.Length ||
+                    il[stationCall] != 0x28 ||
+                    ReadToken(il, stationCall + 1) != MetadataTokens.GetToken(stationHandle) ||
+                    il[stationCall + 5] != 0x28 ||
+                    ReadToken(il, stationCall + 6) != MetadataTokens.GetToken(implicitHandle) ||
+                    il[stationCall + 10] != 0x2d ||
+                    il[stationCall + 12] != 0x28 ||
+                    ReadToken(il, stationCall + 13) != MetadataTokens.GetToken(zoneInstanceHandle) ||
+                    il[stationCall + 17] != 0x1f || il[stationCall + 18] != 27 ||
+                    il[stationCall + 19] != 0x6f ||
+                    ReadToken(il, stationCall + 20) != MetadataTokens.GetToken(globalKeyHandle) ||
+                    il[stationCall + 24] != 0x2d ||
+                    il[stationCall + 26] != 0x16 || il[stationCall + 27] != 0x2a)
+                {
+                    throw new InvalidOperationException("Player.HaveRequirements station-failure branch shape mismatch");
+                }
+
+                var stationSuccessTarget = stationCall + 12 + unchecked((sbyte)il[stationCall + 11]);
+                var freeBuildSuccessTarget = stationCall + 26 + unchecked((sbyte)il[stationCall + 25]);
+                if (stationSuccessTarget != stationCall + 28 || freeBuildSuccessTarget != stationCall + 28)
+                    throw new InvalidOperationException("Player.HaveRequirements station-failure branch target mismatch");
+
+                _passed++;
+                Console.WriteLine("PASS IL null station bypasses the complete station-failure branch");
+            }
+
+            internal void RequirementCallSite(
+                string typeName,
+                string methodName,
+                string[] parameters,
+                int expectedMode,
+                bool requireTryPlaceAfter)
+            {
+                var methodHandle = FindMethodHandle(typeName, methodName, parameters);
+                var haveRequirementsHandle = FindMethodHandle(
+                    "Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" });
+                var il = MethodIl(methodHandle);
+                var calls = FindCallOffsets(il, MetadataTokens.GetToken(haveRequirementsHandle));
+                if (calls.Count != 1)
+                    throw new InvalidOperationException(typeName + "." + methodName + " requirement call count mismatch: " + calls.Count);
+
+                var expectedModeOpcode = expectedMode switch
+                {
+                    0 => (byte)0x16,
+                    1 => (byte)0x17,
+                    2 => (byte)0x18,
+                    _ => throw new ArgumentOutOfRangeException(nameof(expectedMode))
+                };
+                if (calls[0] == 0 || il[calls[0] - 1] != expectedModeOpcode)
+                    throw new InvalidOperationException(typeName + "." + methodName + " requirement mode mismatch");
+
+                if (requireTryPlaceAfter)
+                {
+                    var tryPlaceHandle = FindMethodHandle("Player", "TryPlacePiece", new[] { "Piece" });
+                    var tryPlaceCalls = FindCallOffsets(il, MetadataTokens.GetToken(tryPlaceHandle));
+                    if (tryPlaceCalls.Count != 1 || tryPlaceCalls[0] <= calls[0])
+                        throw new InvalidOperationException(typeName + "." + methodName + " placement call ordering mismatch");
+                }
+
+                _passed++;
+                Console.WriteLine("PASS IL " + typeName + "." + methodName + " requirement path");
+            }
+
             internal void Field(string typeName, string fieldName, string fieldType, FieldAttributes required)
             {
-                var type = FindTopLevel(typeName);
-                var matches = type.GetFields()
-                    .Select(handle => _reader.GetFieldDefinition(handle))
-                    .Where(field => _reader.GetString(field.Name) == fieldName && field.DecodeSignature(_provider, null) == fieldType)
-                    .ToArray();
-                if (matches.Length != 1 || (matches[0].Attributes & required) != required)
+                var handle = FindFieldHandle(typeName, fieldName, fieldType);
+                var field = _reader.GetFieldDefinition(handle);
+                if ((field.Attributes & required) != required)
                     throw new InvalidOperationException(typeName + "." + fieldName + " signature/attributes mismatch");
                 _passed++;
                 Console.WriteLine("PASS field " + typeName + "." + fieldName);
+            }
+
+            internal void MethodReadsField(
+                string sourceType, string sourceName, string sourceReturn, string[] sourceParameters,
+                string fieldType, string fieldName)
+            {
+                var source = FindMethodHandle(sourceType, sourceName, sourceReturn, sourceParameters);
+                var field = FindFieldHandle(fieldType, fieldName, "CraftingStation");
+                RequireInstructionToken(source, new byte[] { 0x7b }, MetadataTokens.GetToken(field),
+                    sourceType + "." + sourceName + " reads " + fieldType + "." + fieldName);
+            }
+
+            internal void MethodCalls(
+                string sourceType, string sourceName, string sourceReturn, string[] sourceParameters,
+                string targetType, string targetName, string targetReturn, string[] targetParameters)
+            {
+                var source = FindMethodHandle(sourceType, sourceName, sourceReturn, sourceParameters);
+                var target = FindMethodHandle(targetType, targetName, targetReturn, targetParameters);
+                RequireInstructionToken(source, new byte[] { 0x28, 0x6f }, MetadataTokens.GetToken(target),
+                    sourceType + "." + sourceName + " calls " + targetType + "." + targetName);
+            }
+
+            private void RequireInstructionToken(MethodDefinitionHandle source, byte[] opcodes, int token, string label)
+            {
+                var method = _reader.GetMethodDefinition(source);
+                var bytes = _pe.GetMethodBody(method.RelativeVirtualAddress).GetILBytes()
+                    ?? throw new InvalidOperationException(label + " has no IL body");
+                var found = false;
+                for (var index = 0; index + 4 < bytes.Length && !found; index++)
+                {
+                    if (!opcodes.Contains(bytes[index])) continue;
+                    var observed = bytes[index + 1] |
+                                   (bytes[index + 2] << 8) |
+                                   (bytes[index + 3] << 16) |
+                                   (bytes[index + 4] << 24);
+                    found = observed == token;
+                }
+                if (!found) throw new InvalidOperationException(label + " IL contract mismatch");
+                _passed++;
+                Console.WriteLine("PASS IL " + label);
+            }
+
+            private MethodDefinitionHandle FindMethodHandle(string typeName, string methodName, string returnType, string[] parameters)
+            {
+                var type = FindTopLevel(typeName);
+                return type.GetMethods().Single(handle =>
+                {
+                    var method = _reader.GetMethodDefinition(handle);
+                    if (_reader.GetString(method.Name) != methodName) return false;
+                    var signature = method.DecodeSignature(_provider, null);
+                    return signature.ReturnType == returnType && signature.ParameterTypes.SequenceEqual(parameters);
+                });
+            }
+
+            private MethodDefinitionHandle FindMethodHandle(string typeName, string methodName, string[] parameters)
+            {
+                var type = FindTopLevel(typeName);
+                return type.GetMethods().Single(handle =>
+                {
+                    var method = _reader.GetMethodDefinition(handle);
+                    var signature = method.DecodeSignature(_provider, null);
+                    return _reader.GetString(method.Name) == methodName && signature.ParameterTypes.SequenceEqual(parameters);
+                });
+            }
+
+            private byte[] MethodIl(MethodDefinitionHandle handle)
+            {
+                var definition = _reader.GetMethodDefinition(handle);
+                return _pe.GetMethodBody(definition.RelativeVirtualAddress).GetILBytes()
+                    ?? throw new InvalidOperationException("Method has no IL body");
+            }
+
+            private static List<int> FindCallOffsets(byte[] il, int token)
+            {
+                var offsets = new List<int>();
+                for (var index = 0; index <= il.Length - 5; index++)
+                {
+                    if ((il[index] == 0x28 || il[index] == 0x6f) && ReadToken(il, index + 1) == token)
+                        offsets.Add(index);
+                }
+                return offsets;
+            }
+
+            private static int ReadToken(byte[] il, int offset) => BitConverter.ToInt32(il, offset);
+
+            private FieldDefinitionHandle FindFieldHandle(string typeName, string fieldName, string fieldType)
+            {
+                var type = FindTopLevel(typeName);
+                return type.GetFields().Single(handle =>
+                {
+                    var field = _reader.GetFieldDefinition(handle);
+                    return _reader.GetString(field.Name) == fieldName && field.DecodeSignature(_provider, null) == fieldType;
+                });
             }
 
             internal void EnumValues(string outerName, string nestedName, IReadOnlyDictionary<string, int> expected)

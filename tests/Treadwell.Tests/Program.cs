@@ -13,7 +13,7 @@ namespace Treadwell.Tests
             TuningTests();
             HysteresisTests();
             PavedRoadPlacementTests();
-            Console.WriteLine(_passed + "/42 core tests passed");
+            Console.WriteLine(_passed + "/46 core tests passed");
             return 0;
         }
 
@@ -113,69 +113,93 @@ namespace Treadwell.Tests
 
         private static void PavedRoadPlacementTests()
         {
-            Run("enabled exact paved road removes its station field", () =>
+            Run("exact paved road removes whatever station object is attached", () =>
             {
-                var station = ExactStation();
+                var station = new FakeStation("runtime-station-with-unexpected-identity");
                 var piece = ExactPiece(station);
                 var stationOverride = NewStationOverride();
-                Equal(true, stationOverride.SetEnabled(true, piece));
+                Equal(StationOverrideApplyResult.Removed, stationOverride.Apply(piece));
                 Equal(true, piece.Station == null);
             });
-            Run("restore returns the exact original stonecutter object", () =>
+            Run("station object names are never consulted", () =>
+            {
+                var station = new FakeStation(null);
+                var piece = ExactPiece(station);
+                Equal(StationOverrideApplyResult.Removed, NewStationOverride().Apply(piece));
+                Equal(true, piece.Station == null);
+            });
+            Run("ordinary Unity runtime clone name is exact paved road", () =>
+            {
+                var piece = ExactPiece(ExactStation());
+                piece.PrefabName += PavedRoadStationOverride<FakePiece, FakeStation>.RuntimeCloneSuffix;
+                Equal(StationOverrideApplyResult.Removed, NewStationOverride().Apply(piece));
+                Equal(true, piece.Station == null);
+            });
+            Run("clone normalization removes only one exact suffix", () =>
+            {
+                Equal("paved_road", PavedRoadStationOverride<FakePiece, FakeStation>.NormalizePrefabName("paved_road(Clone)")!);
+                Equal("paved_road(Clone)", PavedRoadStationOverride<FakePiece, FakeStation>.NormalizePrefabName("paved_road(Clone)(Clone)")!);
+                Equal("paved_road ", PavedRoadStationOverride<FakePiece, FakeStation>.NormalizePrefabName("paved_road (Clone)")!);
+            });
+            Run("restore returns the exact captured station object", () =>
             {
                 var station = ExactStation();
                 var piece = ExactPiece(station);
                 var stationOverride = NewStationOverride();
                 stationOverride.Apply(piece);
-                Equal(true, stationOverride.Restore());
+                Equal(StationOverrideRestoreResult.Restored, stationOverride.Restore());
                 Equal(station, piece.Station!);
             });
-            Run("disabled setting leaves the vanilla station attached", () =>
+            Run("setting disable restores the captured station", () =>
             {
                 var station = ExactStation();
                 var piece = ExactPiece(station);
-                Equal(true, NewStationOverride().SetEnabled(false, piece));
+                var stationOverride = NewStationOverride();
+                stationOverride.Apply(piece);
+                Equal(StationOverrideRestoreResult.Restored, stationOverride.Restore());
                 Equal(station, piece.Station!);
             });
             Run("repeated apply is idempotent", () =>
             {
                 var piece = ExactPiece(ExactStation());
                 var stationOverride = NewStationOverride();
-                Equal(true, stationOverride.Apply(piece));
-                Equal(true, stationOverride.Apply(piece));
-                Equal(true, piece.Station == null);
-                Equal(true, stationOverride.Restore());
+                Equal(StationOverrideApplyResult.Removed, stationOverride.Apply(piece));
+                Equal(StationOverrideApplyResult.AlreadyAbsent, stationOverride.Apply(piece));
+                Equal(true, stationOverride.IsAppliedTo(piece));
             });
-            Run("piece-table reload restores old piece before changing new piece", () =>
+            Run("piece-table replacement restores old piece before changing new piece", () =>
             {
                 var firstStation = ExactStation();
                 var firstPiece = ExactPiece(firstStation);
                 var secondStation = ExactStation();
                 var secondPiece = ExactPiece(secondStation);
                 var stationOverride = NewStationOverride();
-                Equal(true, stationOverride.Apply(firstPiece));
-                Equal(true, stationOverride.Apply(secondPiece));
+                stationOverride.Apply(firstPiece);
+                Equal(StationOverrideApplyResult.Removed, stationOverride.Apply(secondPiece));
                 Equal(firstStation, firstPiece.Station!);
                 Equal(true, secondPiece.Station == null);
-                Equal(true, stationOverride.Restore());
+                Equal(StationOverrideRestoreResult.Restored, stationOverride.Restore());
                 Equal(secondStation, secondPiece.Station!);
             });
-            Run("scene cleanup restores the current piece", () =>
+            Run("stationless runtime clone does not displace live prefab ownership", () =>
             {
                 var station = ExactStation();
-                var piece = ExactPiece(station);
+                var prefab = ExactPiece(station);
+                var clone = ExactPiece(null);
+                clone.PrefabName += "(Clone)";
                 var stationOverride = NewStationOverride();
-                stationOverride.Apply(piece);
-                Equal(true, stationOverride.Restore());
-                Equal(false, stationOverride.IsApplied);
-                Equal(station, piece.Station!);
+                stationOverride.Apply(prefab);
+                Equal(StationOverrideApplyResult.AlreadyAbsent, stationOverride.Apply(clone));
+                Equal(true, stationOverride.IsAppliedTo(prefab));
+                Equal(StationOverrideRestoreResult.Restored, stationOverride.Restore());
+                Equal(station, prefab.Station!);
             });
             Run("unrelated piece prefab stays unchanged", () =>
             {
                 var station = ExactStation();
                 var piece = ExactPiece(station);
                 piece.PrefabName = "stone_floor_2x2";
-                Equal(false, NewStationOverride().Apply(piece));
+                Equal(StationOverrideApplyResult.NotExactPavedRoad, NewStationOverride().Apply(piece));
                 Equal(station, piece.Station!);
             });
             Run("unrelated piece display name stays unchanged", () =>
@@ -183,30 +207,22 @@ namespace Treadwell.Tests
                 var station = ExactStation();
                 var piece = ExactPiece(station);
                 piece.DisplayName = "$piece_stonefloor";
-                Equal(false, NewStationOverride().Apply(piece));
+                Equal(StationOverrideApplyResult.NotExactPavedRoad, NewStationOverride().Apply(piece));
                 Equal(station, piece.Station!);
             });
-            Run("unrelated station prefab stays unchanged", () =>
+            Run("lookalike clone name stays unchanged", () =>
             {
                 var station = ExactStation();
-                station.PrefabName = "piece_workbench";
                 var piece = ExactPiece(station);
-                Equal(false, NewStationOverride().Apply(piece));
+                piece.PrefabName = "custom_paved_road(Clone)";
+                Equal(StationOverrideApplyResult.NotExactPavedRoad, NewStationOverride().Apply(piece));
                 Equal(station, piece.Station!);
             });
-            Run("unrelated station display name stays unchanged", () =>
-            {
-                var station = ExactStation();
-                station.DisplayName = "$piece_workbench";
-                var piece = ExactPiece(station);
-                Equal(false, NewStationOverride().Apply(piece));
-                Equal(station, piece.Station!);
-            });
-            Run("already stationless piece is not claimed", () =>
+            Run("already stationless piece is reported without ownership", () =>
             {
                 var piece = ExactPiece(null);
                 var stationOverride = NewStationOverride();
-                Equal(false, stationOverride.Apply(piece));
+                Equal(StationOverrideApplyResult.AlreadyAbsent, stationOverride.Apply(piece));
                 Equal(false, stationOverride.IsApplied);
             });
             Run("identity matching remains ordinal and case-sensitive", () =>
@@ -214,18 +230,40 @@ namespace Treadwell.Tests
                 var station = ExactStation();
                 var piece = ExactPiece(station);
                 piece.PrefabName = "Paved_Road";
-                Equal(false, NewStationOverride().Apply(piece));
+                Equal(StationOverrideApplyResult.NotExactPavedRoad, NewStationOverride().Apply(piece));
                 Equal(station, piece.Station!);
+            });
+            Run("active override refuses an unexpected replacement station", () =>
+            {
+                var piece = ExactPiece(ExactStation());
+                var stationOverride = NewStationOverride();
+                stationOverride.Apply(piece);
+                var replacement = new FakeStation("other-mod-station");
+                piece.Station = replacement;
+                Equal(StationOverrideApplyResult.Conflict, stationOverride.Apply(piece));
+                Equal(replacement, piece.Station!);
             });
             Run("restore never overwrites another runtime station change", () =>
             {
                 var piece = ExactPiece(ExactStation());
                 var stationOverride = NewStationOverride();
                 stationOverride.Apply(piece);
-                var replacement = new FakeStation("custom_station", "$piece_customstation");
+                var replacement = new FakeStation("custom-station");
                 piece.Station = replacement;
-                Equal(false, stationOverride.Restore());
+                Equal(StationOverrideRestoreResult.Conflict, stationOverride.Restore());
                 Equal(replacement, piece.Station!);
+                Equal(false, stationOverride.IsApplied);
+            });
+            Run("restore accepts an already restored original", () =>
+            {
+                var station = ExactStation();
+                var piece = ExactPiece(station);
+                var stationOverride = NewStationOverride();
+                stationOverride.Apply(piece);
+                piece.Station = station;
+                Equal(StationOverrideRestoreResult.AlreadyRestored, stationOverride.Restore());
+                Equal(station, piece.Station!);
+                Equal(false, stationOverride.IsApplied);
             });
         }
 
@@ -233,15 +271,11 @@ namespace Treadwell.Tests
             => new PavedRoadStationOverride<FakePiece, FakeStation>(
                 piece => piece.PrefabName,
                 piece => piece.DisplayName,
-                piece => piece.Station!,
-                (piece, station) => piece.Station = station,
-                station => station.PrefabName,
-                station => station.DisplayName);
+                piece => piece.Station,
+                (piece, station) => piece.Station = station);
 
         private static FakeStation ExactStation()
-            => new FakeStation(
-                PavedRoadStationOverride<FakePiece, FakeStation>.VanillaStationPrefabName,
-                PavedRoadStationOverride<FakePiece, FakeStation>.VanillaStationDisplayName);
+            => new FakeStation("captured-station");
 
         private static FakePiece ExactPiece(FakeStation? station)
             => new FakePiece(
@@ -265,14 +299,12 @@ namespace Treadwell.Tests
 
         private sealed class FakeStation
         {
-            internal FakeStation(string prefabName, string displayName)
+            internal FakeStation(string? identity)
             {
-                PrefabName = prefabName;
-                DisplayName = displayName;
+                Identity = identity;
             }
 
-            internal string PrefabName { get; set; }
-            internal string DisplayName { get; set; }
+            internal string? Identity { get; }
         }
 
         private static void Run(string name, Action test)

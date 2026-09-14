@@ -92,6 +92,10 @@ namespace Treadwell
         private readonly PavedRoadStationOverride<Piece, CraftingStation> _stationOverride;
         private PieceTable _lastPieceTable;
         private bool _pavedSettingSubscribed;
+        private bool _loggedStationRemoved;
+        private bool _loggedStationAlreadyAbsent;
+        private bool _loggedCandidateMissing;
+        private bool _loggedStationConflict;
 
         internal RoadFeatureModule(
             ConfigEntry<bool> enabled,
@@ -112,9 +116,7 @@ namespace Treadwell
                 piece => piece.gameObject != null ? piece.gameObject.name : null,
                 piece => piece.m_name,
                 piece => piece.m_craftingStation,
-                (piece, station) => piece.m_craftingStation = station,
-                station => station.gameObject != null ? station.gameObject.name : null,
-                station => station.m_name);
+                (piece, station) => piece.m_craftingStation = station);
         }
 
         public override void ValidateCompatibility(ICollection<string> failures)
@@ -127,17 +129,21 @@ namespace Treadwell
             CompatibilityGate.RequireMethod(failures, typeof(ZNetScene), "OnDestroy", typeof(void),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => !method.IsStatic);
-            CompatibilityGate.RequireMethod(failures, typeof(Player), "GetBuildPieces", typeof(List<Piece>),
+            CompatibilityGate.RequireMethod(failures, typeof(Player), "SetPlaceMode", typeof(void),
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                new[] { typeof(PieceTable) }, method => !method.IsStatic && method.IsFamily && method.IsVirtual);
+            CompatibilityGate.RequireMethod(failures, typeof(Player), "GetBuildTool", typeof(PieceTable),
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => !method.IsStatic);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "UpdateAvailablePiecesList", typeof(void),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(Player), "HaveRequirements", typeof(bool),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(Piece), typeof(Player.RequirementMode) }, method => !method.IsStatic);
             CompatibilityGate.RequireField(failures, typeof(Piece), "m_name", typeof(string),
                 BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireField(failures, typeof(Piece), "m_craftingStation", typeof(CraftingStation),
-                BindingFlags.Instance | BindingFlags.Public);
-            CompatibilityGate.RequireField(failures, typeof(CraftingStation), "m_name", typeof(string),
                 BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "GetRunSpeedFactor", typeof(float),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
@@ -176,9 +182,16 @@ namespace Treadwell
 
             _activeModule = this;
             Harmony.Patch(
+                AccessTools.DeclaredMethod(typeof(Player), "SetPlaceMode", new[] { typeof(PieceTable) }),
+                prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerSetPlaceModePrefix)));
+            Harmony.Patch(
                 AccessTools.DeclaredMethod(typeof(PieceTable), "UpdateAvailable",
                     new[] { typeof(HashSet<string>), typeof(Player), typeof(bool), typeof(bool) }),
                 prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PieceTableUpdateAvailablePrefix)));
+            Harmony.Patch(
+                AccessTools.DeclaredMethod(typeof(Player), "HaveRequirements",
+                    new[] { typeof(Piece), typeof(Player.RequirementMode) }),
+                prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerHaveRequirementsPrefix)));
             Harmony.Patch(
                 AccessTools.DeclaredMethod(typeof(ZNetScene), "OnDestroy", Type.EmptyTypes),
                 prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(ZNetSceneOnDestroyPrefix)));
@@ -211,9 +224,19 @@ namespace Treadwell
             _surfaceTracker.Reset();
         }
 
+        private static void PlayerSetPlaceModePrefix(PieceTable __0)
+        {
+            _activeModule?.RefreshPavedRoadStation(__0, reportMissingCandidate: true);
+        }
+
         private static void PieceTableUpdateAvailablePrefix(PieceTable __instance)
         {
-            _activeModule?.RefreshPavedRoadStation(__instance);
+            _activeModule?.RefreshPavedRoadStation(__instance, reportMissingCandidate: false);
+        }
+
+        private static void PlayerHaveRequirementsPrefix(Piece __0)
+        {
+            _activeModule?.ApplyPavedRoadStationOverride(__0, reportNearMiss: true);
         }
 
         private static void ZNetSceneOnDestroyPrefix()
@@ -247,22 +270,16 @@ namespace Treadwell
                 return;
             }
 
-            var table = _lastPieceTable;
-            if (table != null)
+            var player = Player.m_localPlayer;
+            var activeTable = player != null ? player.GetBuildTool() : null;
+            if (activeTable != null)
             {
-                RefreshPavedRoadStation(table);
+                RefreshPavedRoadStation(activeTable, reportMissingCandidate: true);
                 return;
             }
 
-            var player = Player.m_localPlayer;
-            var pieces = player != null ? player.GetBuildPieces() : null;
-            if (pieces == null) return;
-            foreach (var piece in pieces)
-            {
-                if (!IsPavedRoadPiece(piece)) continue;
-                ApplyPavedRoadStationOverride(piece);
-                return;
-            }
+            if (_lastPieceTable != null)
+                RefreshPavedRoadStation(_lastPieceTable, reportMissingCandidate: false);
         }
 
         private static void RefreshPlayerAvailablePieces()
@@ -271,7 +288,7 @@ namespace Treadwell
             if (player != null) UpdateAvailablePiecesListMethod.Invoke(player, null);
         }
 
-        private void RefreshPavedRoadStation(PieceTable table)
+        private void RefreshPavedRoadStation(PieceTable table, bool reportMissingCandidate)
         {
             if (table == null) return;
             if (!_pavedRoadWithoutStonecutter.Value)
@@ -280,46 +297,93 @@ namespace Treadwell
                 return;
             }
 
-            var piece = FindPavedRoadPiece(table);
-            if (piece == null) return;
-            _lastPieceTable = table;
-            ApplyPavedRoadStationOverride(piece);
-        }
-
-        private void ApplyPavedRoadStationOverride(Piece piece)
-        {
-            if (piece == null || _stationOverride.IsAppliedTo(piece)) return;
-            var station = piece.m_craftingStation;
-            if (station == null || station.gameObject == null ||
-                !string.Equals(station.gameObject.name, PavedRoadStationOverride<Piece, CraftingStation>.VanillaStationPrefabName, StringComparison.Ordinal) ||
-                !string.Equals(station.m_name, PavedRoadStationOverride<Piece, CraftingStation>.VanillaStationDisplayName, StringComparison.Ordinal))
+            var piece = FindPavedRoadPiece(table, out var nearMatchFound);
+            if (piece == null)
+            {
+                if (reportMissingCandidate && (nearMatchFound || IsLikelyHoePieceTable(table)))
+                    LogCandidateMissingOnce();
                 return;
+            }
 
-            _stationOverride.Apply(piece);
+            _lastPieceTable = table;
+            ApplyPavedRoadStationOverride(piece, reportNearMiss: false);
         }
 
-        private static Piece FindPavedRoadPiece(PieceTable table)
+        private void ApplyPavedRoadStationOverride(Piece piece, bool reportNearMiss)
         {
+            if (!_pavedRoadWithoutStonecutter.Value || piece == null) return;
+
+            var result = _stationOverride.Apply(piece);
+            switch (result)
+            {
+                case StationOverrideApplyResult.Removed:
+                    if (!_loggedStationRemoved)
+                    {
+                        _loggedStationRemoved = true;
+                        Log.LogInfo("Paved Road station field removed; no nearby stonecutter is now required.");
+                    }
+                    break;
+                case StationOverrideApplyResult.AlreadyAbsent:
+                    if (!_loggedStationAlreadyAbsent)
+                    {
+                        _loggedStationAlreadyAbsent = true;
+                        Log.LogInfo("Paved Road station field was already absent; no change was needed.");
+                    }
+                    break;
+                case StationOverrideApplyResult.Conflict:
+                    if (!_loggedStationConflict)
+                    {
+                        _loggedStationConflict = true;
+                        Log.LogWarning("Paved Road station field changed while Treadwell was active; the conflicting value was left untouched.");
+                    }
+                    break;
+                case StationOverrideApplyResult.NotExactPavedRoad:
+                    if (reportNearMiss && IsNearPavedRoadPiece(piece)) LogCandidateMissingOnce();
+                    break;
+            }
+        }
+
+        private Piece FindPavedRoadPiece(PieceTable table, out bool nearMatchFound)
+        {
+            nearMatchFound = false;
+            if (table.m_pieces == null) return null;
             foreach (var pieceObject in table.m_pieces)
             {
                 if (pieceObject == null) continue;
                 var piece = pieceObject.GetComponent<Piece>();
-                if (IsPavedRoadPiece(piece)) return piece;
+                if (_stationOverride.IsExactPavedRoad(piece)) return piece;
+                if (IsNearPavedRoadPiece(piece)) nearMatchFound = true;
             }
             return null;
         }
 
-        private static bool IsPavedRoadPiece(Piece piece)
-            => piece != null && piece.gameObject != null &&
-               string.Equals(piece.gameObject.name, PavedRoadStationOverride<Piece, CraftingStation>.VanillaPrefabName, StringComparison.Ordinal) &&
-               string.Equals(piece.m_name, PavedRoadStationOverride<Piece, CraftingStation>.VanillaDisplayName, StringComparison.Ordinal);
+        private static bool IsNearPavedRoadPiece(Piece piece)
+        {
+            if (piece == null || piece.gameObject == null) return false;
+            var prefabName = PavedRoadStationOverride<Piece, CraftingStation>.NormalizePrefabName(piece.gameObject.name);
+            return string.Equals(prefabName, PavedRoadStationOverride<Piece, CraftingStation>.VanillaPrefabName, StringComparison.Ordinal) ||
+                   string.Equals(piece.m_name, PavedRoadStationOverride<Piece, CraftingStation>.VanillaDisplayName, StringComparison.Ordinal);
+        }
+
+        private static bool IsLikelyHoePieceTable(PieceTable table)
+        {
+            var name = table != null && table.gameObject != null ? table.gameObject.name : null;
+            return name != null && name.IndexOf("hoe", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private void LogCandidateMissingOnce()
+        {
+            if (_loggedCandidateMissing) return;
+            _loggedCandidateMissing = true;
+            Log.LogWarning("No exact Paved Road candidate was found in the active hoe piece table; the vanilla stonecutter requirement remains unchanged.");
+        }
 
         private void RestorePavedRoadStation()
         {
             if (!_stationOverride.IsApplied) return;
             try
             {
-                if (!_stationOverride.Restore())
+                if (_stationOverride.Restore() == StationOverrideRestoreResult.Conflict)
                     Log.LogWarning("Did not restore the Paved Road station because another runtime change replaced it.");
             }
             catch (MissingReferenceException)

@@ -42,7 +42,7 @@ Treadwell creates exactly six settings in `BepInEx/config/com.jstack424.treadwel
 5. `Paved sprint speed bonus (%)` (default `20`)
 6. `Paved sprint stamina reduction (%)` (default `20`)
 
-The stonecutter option is read live. When enabled, Treadwell finds the exact vanilla Paved Road entry in the active hoe piece table and removes that recipe's crafting-station reference locally. Turning the option off restores the exact original stonecutter object. It never changes the paved road's stone cost, unlock knowledge, terrain checks, hoe behavior, repairs, or unrelated pieces and stations.
+The stonecutter option is read live. When enabled, Treadwell finds the exact vanilla Paved Road entry in the active hoe piece table, including Valheim's harmless `(Clone)` runtime name, and removes whatever non-null crafting-station reference is attached locally. Turning the option off restores the exact captured object. It never changes the paved road's stone cost, unlock knowledge, terrain checks, hoe behavior, repairs, or unrelated pieces and stations. BepInEx logs one concise diagnostic when the live field is removed, was already absent, or no exact Paved Road candidate can be found.
 
 All percentages are constrained to `0–100` and are read live. The master switch installs or removes Treadwell's isolated Harmony patches.
 
@@ -57,7 +57,7 @@ Treadwell 0.1.1 supports exactly:
 - BepInEx `5.4.23.5` (distributed by BepInExPack for Valheim `5.4.2350`)
 - Harmony `2.9.0.0`
 
-At startup, Treadwell verifies the game assembly hash and MVID, every patched method, every accessed field, and the expected piece-table and terrain-paint contracts before installing gameplay hooks. Before Valheim refreshes an available piece table, Treadwell changes only the exact vanilla Paved Road `Piece.m_craftingStation` reference from its verified stonecutter object to `null`; Valheim's normal Paved Road recipe-knowledge check still decides whether it is unlocked. Disable, configuration changes, scene unload, and plugin unload restore the captured original reference. DLC, free-build, stone-count, placement, consumption, stamina, durability, skill, and effect handling remain vanilla. If the runtime contract does not match the pinned build, Treadwell disables itself instead of guessing.
+At startup, Treadwell verifies the game assembly hash and MVID, every patched method, every accessed field, and the expected piece-table and terrain-paint contracts before installing gameplay hooks. It applies the exact Paved Road mutation when Valheim enters place mode, before piece-table availability refreshes, and again immediately before vanilla requirement checks. Only the exact `paved_road` / `$piece_pavedroad` component is eligible; its `Piece.m_craftingStation` reference is set to `null` without depending on the runtime station object's prefab or display name. Valheim's normal recipe-knowledge and resource checks still decide whether the piece is unlocked and affordable. Disable, configuration changes, scene unload, and plugin unload restore the captured original reference. DLC, free-build, stone-count, placement, consumption, stamina, durability, skill, and effect handling remain vanilla. If the runtime contract does not match the pinned build, Treadwell disables itself instead of guessing.
 
 The core road bonuses have been live-tested in Valheim. The recipe-level stonecutter removal and multiplayer behavior still require live validation, and future Valheim versions are not assumed compatible until a new build is checked.
 

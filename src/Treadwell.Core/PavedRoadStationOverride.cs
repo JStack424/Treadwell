@@ -2,38 +2,47 @@ using System;
 
 namespace Treadwell.Core
 {
+    public enum StationOverrideApplyResult
+    {
+        NotExactPavedRoad,
+        Removed,
+        AlreadyAbsent,
+        Conflict
+    }
+
+    public enum StationOverrideRestoreResult
+    {
+        NothingToRestore,
+        Restored,
+        AlreadyRestored,
+        Conflict
+    }
+
     public sealed class PavedRoadStationOverride<TPiece, TStation>
         where TPiece : class
         where TStation : class
     {
         public const string VanillaPrefabName = "paved_road";
         public const string VanillaDisplayName = "$piece_pavedroad";
-        public const string VanillaStationPrefabName = "piece_stonecutter";
-        public const string VanillaStationDisplayName = "$piece_stonecutter";
+        public const string RuntimeCloneSuffix = "(Clone)";
 
-        private readonly Func<TPiece, string> _piecePrefabName;
-        private readonly Func<TPiece, string> _pieceDisplayName;
+        private readonly Func<TPiece, string?> _piecePrefabName;
+        private readonly Func<TPiece, string?> _pieceDisplayName;
         private readonly Func<TPiece, TStation?> _getStation;
         private readonly Action<TPiece, TStation?> _setStation;
-        private readonly Func<TStation, string> _stationPrefabName;
-        private readonly Func<TStation, string> _stationDisplayName;
         private TPiece? _piece;
         private TStation? _originalStation;
 
         public PavedRoadStationOverride(
-            Func<TPiece, string> piecePrefabName,
-            Func<TPiece, string> pieceDisplayName,
+            Func<TPiece, string?> piecePrefabName,
+            Func<TPiece, string?> pieceDisplayName,
             Func<TPiece, TStation?> getStation,
-            Action<TPiece, TStation?> setStation,
-            Func<TStation, string> stationPrefabName,
-            Func<TStation, string> stationDisplayName)
+            Action<TPiece, TStation?> setStation)
         {
             _piecePrefabName = piecePrefabName ?? throw new ArgumentNullException(nameof(piecePrefabName));
             _pieceDisplayName = pieceDisplayName ?? throw new ArgumentNullException(nameof(pieceDisplayName));
             _getStation = getStation ?? throw new ArgumentNullException(nameof(getStation));
             _setStation = setStation ?? throw new ArgumentNullException(nameof(setStation));
-            _stationPrefabName = stationPrefabName ?? throw new ArgumentNullException(nameof(stationPrefabName));
-            _stationDisplayName = stationDisplayName ?? throw new ArgumentNullException(nameof(stationDisplayName));
         }
 
         public bool IsApplied => _piece != null;
@@ -41,34 +50,37 @@ namespace Treadwell.Core
         public bool IsAppliedTo(TPiece piece)
             => piece != null && ReferenceEquals(_piece, piece);
 
-        public bool SetEnabled(bool enabled, TPiece? candidate)
-        {
-            if (!enabled)
-                return Restore();
-            return candidate != null && Apply(candidate);
-        }
-
-        public bool Apply(TPiece piece)
+        public StationOverrideApplyResult Apply(TPiece piece)
         {
             if (piece == null || !IsExactPavedRoad(piece))
-                return false;
-
-            if (ReferenceEquals(_piece, piece))
-                return _getStation(piece) == null;
-
-            if (_piece != null && !Restore())
-                return false;
+                return StationOverrideApplyResult.NotExactPavedRoad;
 
             var station = _getStation(piece);
-            if (station == null || !IsExactStonecutter(station))
-                return false;
+            if (ReferenceEquals(_piece, piece))
+            {
+                if (station == null)
+                    return StationOverrideApplyResult.AlreadyAbsent;
+                if (!ReferenceEquals(station, _originalStation))
+                    return StationOverrideApplyResult.Conflict;
+
+                _setStation(piece, null);
+                return StationOverrideApplyResult.Removed;
+            }
+
+            // A stationless runtime clone may have inherited the already-cleared value.
+            // It must not displace the live prefab whose original station we still own.
+            if (station == null)
+                return StationOverrideApplyResult.AlreadyAbsent;
+
+            if (_piece != null)
+                Restore();
 
             _piece = piece;
             _originalStation = station;
             try
             {
                 _setStation(piece, null);
-                return true;
+                return StationOverrideApplyResult.Removed;
             }
             catch
             {
@@ -77,30 +89,34 @@ namespace Treadwell.Core
             }
         }
 
-        public bool Restore()
+        public StationOverrideRestoreResult Restore()
         {
             var piece = _piece;
             var originalStation = _originalStation;
             if (piece == null)
-                return true;
+                return StationOverrideRestoreResult.NothingToRestore;
 
-            if (_getStation(piece) != null)
+            var currentStation = _getStation(piece);
+            if (currentStation != null)
             {
+                var result = ReferenceEquals(currentStation, originalStation)
+                    ? StationOverrideRestoreResult.AlreadyRestored
+                    : StationOverrideRestoreResult.Conflict;
                 Forget();
-                return false;
+                return result;
             }
 
             if (originalStation == null)
             {
                 Forget();
-                return false;
+                return StationOverrideRestoreResult.Conflict;
             }
 
             try
             {
                 _setStation(piece, originalStation);
                 Forget();
-                return true;
+                return StationOverrideRestoreResult.Restored;
             }
             catch
             {
@@ -115,12 +131,16 @@ namespace Treadwell.Core
             _originalStation = null;
         }
 
-        private bool IsExactPavedRoad(TPiece piece)
-            => string.Equals(_piecePrefabName(piece), VanillaPrefabName, StringComparison.Ordinal) &&
+        public bool IsExactPavedRoad(TPiece piece)
+            => piece != null &&
+               string.Equals(NormalizePrefabName(_piecePrefabName(piece)), VanillaPrefabName, StringComparison.Ordinal) &&
                string.Equals(_pieceDisplayName(piece), VanillaDisplayName, StringComparison.Ordinal);
 
-        private bool IsExactStonecutter(TStation station)
-            => string.Equals(_stationPrefabName(station), VanillaStationPrefabName, StringComparison.Ordinal) &&
-               string.Equals(_stationDisplayName(station), VanillaStationDisplayName, StringComparison.Ordinal);
+        public static string? NormalizePrefabName(string? name)
+        {
+            if (name != null && name.EndsWith(RuntimeCloneSuffix, StringComparison.Ordinal))
+                return name.Substring(0, name.Length - RuntimeCloneSuffix.Length);
+            return name;
+        }
     }
 }
