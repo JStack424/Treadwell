@@ -5,10 +5,10 @@
 Local test candidate.
 
 - Added `Paved roads without stonecutter`, enabled by default, so the vanilla paved-road terrain piece can be placed outside stonecutter range.
+- Replaced the unsuccessful requirement-check bypass with a direct, local recipe edit: the exact Paved Road piece's crafting-station reference is removed before its piece table refreshes.
+- Preserved and safely restored the original stonecutter reference when the option is disabled, the scene unloads, or Treadwell shuts down.
 - Kept the normal stone cost, unlock knowledge, placement checks, hoe stamina and durability, effects, repairs, and every unrelated piece or crafting station unchanged.
-- Disabling the option restores Valheim's exact nearby-stonecutter requirement.
-- Fixed the live placement failure by removing an invalid dependency on the runtime `TerrainModifier` component location from the build-menu requirement check; exact identification now uses the vanilla piece and station prefab/display identities.
-- Added regression coverage for the component-layout-independent policy and pinned UI, HUD, placement, station-failure, and `TryPlacePiece` call paths.
+- Added regression coverage for exact recipe mutation, restoration, piece-table reloads, unrelated pieces, runtime conflicts, and the pinned lifecycle/field contract.
 
 ## 0.1.0
 

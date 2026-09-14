@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 
@@ -29,28 +28,22 @@ namespace Treadwell.Compatibility.Tests
             Equal(ExpectedMvid, reader.GetGuid(reader.GetModuleDefinition().Mvid), "assembly MVID");
             var contract = new Contract(reader, pe);
 
-            contract.Method("Player", "HaveRequirements", "System.Boolean",
-                new[] { "Piece", "RequirementMode" }, MethodAttributes.Public);
+            contract.Method("PieceTable", "UpdateAvailable", "System.Void",
+                new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" }, MethodAttributes.Public);
+            contract.Method("ZNetScene", "OnDestroy", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
+            contract.Method("Player", "GetBuildPieces", "System.Collections.Generic.List`1<Piece>", Array.Empty<string>(), MethodAttributes.Public);
+            contract.Method("Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
             contract.Method("Player", "GetRunSpeedFactor", "System.Single", Array.Empty<string>(),
                 MethodAttributes.Family | MethodAttributes.Virtual);
             contract.Method("SEMan", "ModifyRunStaminaDrain", "System.Void",
                 new[] { "System.Single", "System.Single&", "UnityEngine.Vector3", "System.Boolean" }, MethodAttributes.Public);
-            contract.Method("CraftingStation", "HaveBuildStationInRange", "CraftingStation",
-                new[] { "System.String", "UnityEngine.Vector3" }, MethodAttributes.Public | MethodAttributes.Static);
-            contract.HaveRequirementsStationCallSequence();
-            contract.HaveRequirementsStationFailureBranch();
-            contract.RequirementCallSite("Player", "UpdatePlacement", new[] { "System.Boolean", "System.Single" }, 0, true);
-            contract.RequirementCallSite("BuildUiPieceButton", "UpdateRequirements", Array.Empty<string>(), 0, false);
-            contract.RequirementCallSite("Hud", "UpdatePieceBuildStatus", new[] { "System.Collections.Generic.List`1<Piece>", "Player" }, 0, false);
-            contract.RequirementCallSite("Hud", "UpdatePieceBuildStatusAll", new[] { "System.Collections.Generic.List`1<Piece>", "Player" }, 0, false);
-            contract.RequirementCallSite("PieceTable", "UpdateAvailable", new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" }, 2, false);
-            contract.NoDirectStationCall("Player", "TryPlacePiece", new[] { "Piece" });
             contract.Method("Character", "IsOnGround", "System.Boolean", Array.Empty<string>(), MethodAttributes.Public);
             contract.Method("Character", "IsRunning", "System.Boolean", Array.Empty<string>(), MethodAttributes.Public);
             contract.Method("Character", "GetLastGroundCollider", "UnityEngine.Collider", Array.Empty<string>(), MethodAttributes.Public);
             contract.Method("Heightmap", "GetPaintMask", "UnityEngine.Color", new[] { "UnityEngine.Vector3" }, MethodAttributes.Public);
 
             contract.Field("Player", "m_localPlayer", "Player", FieldAttributes.Public | FieldAttributes.Static);
+            contract.Field("PieceTable", "m_pieces", "System.Collections.Generic.List`1<UnityEngine.GameObject>", FieldAttributes.Public);
             contract.Field("Piece", "m_name", "System.String", FieldAttributes.Public);
             contract.Field("Piece", "m_craftingStation", "CraftingStation", FieldAttributes.Public);
             contract.Field("CraftingStation", "m_name", "System.String", FieldAttributes.Public);
@@ -65,14 +58,7 @@ namespace Treadwell.Compatibility.Tests
                 ["Cultivate"] = 1,
                 ["Paved"] = 2
             });
-            contract.EnumValues("Player", "RequirementMode", new Dictionary<string, int>
-            {
-                ["CanBuild"] = 0,
-                ["IsKnown"] = 1,
-                ["CanAlmostBuild"] = 2
-            });
-
-            Console.WriteLine(_passed + "/28 compatibility contract checks passed");
+            Console.WriteLine(_passed + "/22 compatibility contract checks passed");
             return 0;
         }
 
@@ -112,186 +98,6 @@ namespace Treadwell.Compatibility.Tests
                 _passed++;
                 Console.WriteLine("PASS method " + typeName + "." + methodName);
             }
-
-            internal void HaveRequirementsStationCallSequence()
-            {
-                var player = FindTopLevel("Player");
-                var haveRequirementsHandle = player.GetMethods().Single(handle =>
-                {
-                    var method = _reader.GetMethodDefinition(handle);
-                    var signature = method.DecodeSignature(_provider, null);
-                    return _reader.GetString(method.Name) == "HaveRequirements" &&
-                           signature.ReturnType == "System.Boolean" &&
-                           signature.ParameterTypes.SequenceEqual(new[] { "Piece", "RequirementMode" });
-                });
-                var station = FindTopLevel("CraftingStation");
-                var stationMethodHandle = station.GetMethods().Single(handle =>
-                {
-                    var method = _reader.GetMethodDefinition(handle);
-                    var signature = method.DecodeSignature(_provider, null);
-                    return _reader.GetString(method.Name) == "HaveBuildStationInRange" &&
-                           signature.ReturnType == "CraftingStation" &&
-                           signature.ParameterTypes.SequenceEqual(new[] { "System.String", "UnityEngine.Vector3" });
-                });
-                var implicitHandle = _reader.MemberReferences.Single(handle =>
-                {
-                    var member = _reader.GetMemberReference(handle);
-                    if (_reader.GetString(member.Name) != "op_Implicit" || member.Parent.Kind != HandleKind.TypeReference)
-                        return false;
-                    var parent = _reader.GetTypeReference((TypeReferenceHandle)member.Parent);
-                    if (_reader.GetString(parent.Namespace) != "UnityEngine" || _reader.GetString(parent.Name) != "Object")
-                        return false;
-                    var signature = member.DecodeMethodSignature(_provider, null);
-                    return signature.ReturnType == "System.Boolean" &&
-                           signature.ParameterTypes.SequenceEqual(new[] { "UnityEngine.Object" });
-                });
-
-                var firstToken = MetadataTokens.GetToken(stationMethodHandle);
-                var secondToken = MetadataTokens.GetToken(implicitHandle);
-                var pattern = new byte[10];
-                pattern[0] = 0x28;
-                BitConverter.GetBytes(firstToken).CopyTo(pattern, 1);
-                pattern[5] = 0x28;
-                BitConverter.GetBytes(secondToken).CopyTo(pattern, 6);
-
-                var definition = _reader.GetMethodDefinition(haveRequirementsHandle);
-                var il = _pe.GetMethodBody(definition.RelativeVirtualAddress).GetILBytes()
-                    ?? throw new InvalidOperationException("Player.HaveRequirements has no IL body");
-                var matches = 0;
-                for (var index = 0; index <= il.Length - pattern.Length; index++)
-                {
-                    if (il.AsSpan(index, pattern.Length).SequenceEqual(pattern)) matches++;
-                }
-                if (matches != 1)
-                    throw new InvalidOperationException("Player.HaveRequirements station call sequence mismatch: " + matches);
-                _passed++;
-                Console.WriteLine("PASS IL Player.HaveRequirements station call sequence");
-            }
-
-            internal void HaveRequirementsStationFailureBranch()
-            {
-                var haveRequirementsHandle = FindMethodHandle("Player", "HaveRequirements", new[] { "Piece", "RequirementMode" });
-                var stationHandle = FindMethodHandle("CraftingStation", "HaveBuildStationInRange", new[] { "System.String", "UnityEngine.Vector3" });
-                var zoneInstanceHandle = FindMethodHandle("ZoneSystem", "get_instance", Array.Empty<string>());
-                var globalKeyHandle = FindMethodHandle("ZoneSystem", "GetGlobalKey", new[] { "GlobalKeys" });
-                var implicitHandle = _reader.MemberReferences.Single(handle =>
-                {
-                    var member = _reader.GetMemberReference(handle);
-                    if (_reader.GetString(member.Name) != "op_Implicit" || member.Parent.Kind != HandleKind.TypeReference)
-                        return false;
-                    var parent = _reader.GetTypeReference((TypeReferenceHandle)member.Parent);
-                    if (_reader.GetString(parent.Namespace) != "UnityEngine" || _reader.GetString(parent.Name) != "Object")
-                        return false;
-                    var signature = member.DecodeMethodSignature(_provider, null);
-                    return signature.ReturnType == "System.Boolean" &&
-                           signature.ParameterTypes.SequenceEqual(new[] { "UnityEngine.Object" });
-                });
-
-                var il = MethodIl(haveRequirementsHandle);
-                var stationCall = FindCallOffsets(il, MetadataTokens.GetToken(stationHandle)).Single();
-                if (stationCall + 28 >= il.Length ||
-                    il[stationCall] != 0x28 ||
-                    ReadToken(il, stationCall + 1) != MetadataTokens.GetToken(stationHandle) ||
-                    il[stationCall + 5] != 0x28 ||
-                    ReadToken(il, stationCall + 6) != MetadataTokens.GetToken(implicitHandle) ||
-                    il[stationCall + 10] != 0x2d ||
-                    il[stationCall + 12] != 0x28 ||
-                    ReadToken(il, stationCall + 13) != MetadataTokens.GetToken(zoneInstanceHandle) ||
-                    il[stationCall + 17] != 0x1f || il[stationCall + 18] != 27 ||
-                    il[stationCall + 19] != 0x6f ||
-                    ReadToken(il, stationCall + 20) != MetadataTokens.GetToken(globalKeyHandle) ||
-                    il[stationCall + 24] != 0x2d ||
-                    il[stationCall + 26] != 0x16 || il[stationCall + 27] != 0x2a)
-                {
-                    throw new InvalidOperationException("Player.HaveRequirements station-failure branch shape mismatch");
-                }
-
-                var stationSuccessTarget = stationCall + 12 + unchecked((sbyte)il[stationCall + 11]);
-                var freeBuildSuccessTarget = stationCall + 26 + unchecked((sbyte)il[stationCall + 25]);
-                if (stationSuccessTarget != stationCall + 28 || freeBuildSuccessTarget != stationCall + 28)
-                    throw new InvalidOperationException("Player.HaveRequirements station-failure branch target mismatch");
-
-                _passed++;
-                Console.WriteLine("PASS IL Player.HaveRequirements complete station-failure branch");
-            }
-
-            internal void RequirementCallSite(
-                string typeName,
-                string methodName,
-                string[] parameters,
-                int expectedMode,
-                bool requireTryPlaceAfter)
-            {
-                var methodHandle = FindMethodHandle(typeName, methodName, parameters);
-                var haveRequirementsHandle = FindMethodHandle("Player", "HaveRequirements", new[] { "Piece", "RequirementMode" });
-                var il = MethodIl(methodHandle);
-                var calls = FindCallOffsets(il, MetadataTokens.GetToken(haveRequirementsHandle));
-                if (calls.Count != 1)
-                    throw new InvalidOperationException(typeName + "." + methodName + " requirement call count mismatch: " + calls.Count);
-
-                var expectedModeOpcode = expectedMode switch
-                {
-                    0 => (byte)0x16,
-                    1 => (byte)0x17,
-                    2 => (byte)0x18,
-                    _ => throw new ArgumentOutOfRangeException(nameof(expectedMode))
-                };
-                if (calls[0] == 0 || il[calls[0] - 1] != expectedModeOpcode)
-                    throw new InvalidOperationException(typeName + "." + methodName + " requirement mode mismatch");
-
-                if (requireTryPlaceAfter)
-                {
-                    var tryPlaceHandle = FindMethodHandle("Player", "TryPlacePiece", new[] { "Piece" });
-                    var tryPlaceCalls = FindCallOffsets(il, MetadataTokens.GetToken(tryPlaceHandle));
-                    if (tryPlaceCalls.Count != 1 || tryPlaceCalls[0] <= calls[0])
-                        throw new InvalidOperationException(typeName + "." + methodName + " placement call ordering mismatch");
-                }
-
-                _passed++;
-                Console.WriteLine("PASS IL " + typeName + "." + methodName + " requirement path");
-            }
-
-            internal void NoDirectStationCall(string typeName, string methodName, string[] parameters)
-            {
-                var methodHandle = FindMethodHandle(typeName, methodName, parameters);
-                var stationHandle = FindMethodHandle("CraftingStation", "HaveBuildStationInRange", new[] { "System.String", "UnityEngine.Vector3" });
-                var calls = FindCallOffsets(MethodIl(methodHandle), MetadataTokens.GetToken(stationHandle));
-                if (calls.Count != 0)
-                    throw new InvalidOperationException(typeName + "." + methodName + " unexpectedly performs a direct station-range check");
-                _passed++;
-                Console.WriteLine("PASS IL " + typeName + "." + methodName + " has no direct station check");
-            }
-
-            private MethodDefinitionHandle FindMethodHandle(string typeName, string methodName, string[] parameters)
-            {
-                var type = FindTopLevel(typeName);
-                return type.GetMethods().Single(handle =>
-                {
-                    var method = _reader.GetMethodDefinition(handle);
-                    var signature = method.DecodeSignature(_provider, null);
-                    return _reader.GetString(method.Name) == methodName && signature.ParameterTypes.SequenceEqual(parameters);
-                });
-            }
-
-            private byte[] MethodIl(MethodDefinitionHandle handle)
-            {
-                var definition = _reader.GetMethodDefinition(handle);
-                return _pe.GetMethodBody(definition.RelativeVirtualAddress).GetILBytes()
-                    ?? throw new InvalidOperationException("Method has no IL body");
-            }
-
-            private static List<int> FindCallOffsets(byte[] il, int token)
-            {
-                var offsets = new List<int>();
-                for (var index = 0; index <= il.Length - 5; index++)
-                {
-                    if ((il[index] == 0x28 || il[index] == 0x6f) && ReadToken(il, index + 1) == token)
-                        offsets.Add(index);
-                }
-                return offsets;
-            }
-
-            private static int ReadToken(byte[] il, int offset) => BitConverter.ToInt32(il, offset);
 
             internal void Field(string typeName, string fieldName, string fieldType, FieldAttributes required)
             {

@@ -13,7 +13,7 @@ namespace Treadwell.Tests
             TuningTests();
             HysteresisTests();
             PavedRoadPlacementTests();
-            Console.WriteLine(_passed + "/47 core tests passed");
+            Console.WriteLine(_passed + "/42 core tests passed");
             return 0;
         }
 
@@ -113,67 +113,166 @@ namespace Treadwell.Tests
 
         private static void PavedRoadPlacementTests()
         {
-            const string prefab = PavedRoadPlacementPolicy.VanillaPrefabName;
-            const string display = PavedRoadPlacementPolicy.VanillaDisplayName;
-            const string stationPrefab = PavedRoadPlacementPolicy.VanillaStationPrefabName;
-            const string stationDisplay = PavedRoadPlacementPolicy.VanillaStationDisplayName;
+            Run("enabled exact paved road removes its station field", () =>
+            {
+                var station = ExactStation();
+                var piece = ExactPiece(station);
+                var stationOverride = NewStationOverride();
+                Equal(true, stationOverride.SetEnabled(true, piece));
+                Equal(true, piece.Station == null);
+            });
+            Run("restore returns the exact original stonecutter object", () =>
+            {
+                var station = ExactStation();
+                var piece = ExactPiece(station);
+                var stationOverride = NewStationOverride();
+                stationOverride.Apply(piece);
+                Equal(true, stationOverride.Restore());
+                Equal(station, piece.Station!);
+            });
+            Run("disabled setting leaves the vanilla station attached", () =>
+            {
+                var station = ExactStation();
+                var piece = ExactPiece(station);
+                Equal(true, NewStationOverride().SetEnabled(false, piece));
+                Equal(station, piece.Station!);
+            });
+            Run("repeated apply is idempotent", () =>
+            {
+                var piece = ExactPiece(ExactStation());
+                var stationOverride = NewStationOverride();
+                Equal(true, stationOverride.Apply(piece));
+                Equal(true, stationOverride.Apply(piece));
+                Equal(true, piece.Station == null);
+                Equal(true, stationOverride.Restore());
+            });
+            Run("piece-table reload restores old piece before changing new piece", () =>
+            {
+                var firstStation = ExactStation();
+                var firstPiece = ExactPiece(firstStation);
+                var secondStation = ExactStation();
+                var secondPiece = ExactPiece(secondStation);
+                var stationOverride = NewStationOverride();
+                Equal(true, stationOverride.Apply(firstPiece));
+                Equal(true, stationOverride.Apply(secondPiece));
+                Equal(firstStation, firstPiece.Station!);
+                Equal(true, secondPiece.Station == null);
+                Equal(true, stationOverride.Restore());
+                Equal(secondStation, secondPiece.Station!);
+            });
+            Run("scene cleanup restores the current piece", () =>
+            {
+                var station = ExactStation();
+                var piece = ExactPiece(station);
+                var stationOverride = NewStationOverride();
+                stationOverride.Apply(piece);
+                Equal(true, stationOverride.Restore());
+                Equal(false, stationOverride.IsApplied);
+                Equal(station, piece.Station!);
+            });
+            Run("unrelated piece prefab stays unchanged", () =>
+            {
+                var station = ExactStation();
+                var piece = ExactPiece(station);
+                piece.PrefabName = "stone_floor_2x2";
+                Equal(false, NewStationOverride().Apply(piece));
+                Equal(station, piece.Station!);
+            });
+            Run("unrelated piece display name stays unchanged", () =>
+            {
+                var station = ExactStation();
+                var piece = ExactPiece(station);
+                piece.DisplayName = "$piece_stonefloor";
+                Equal(false, NewStationOverride().Apply(piece));
+                Equal(station, piece.Station!);
+            });
+            Run("unrelated station prefab stays unchanged", () =>
+            {
+                var station = ExactStation();
+                station.PrefabName = "piece_workbench";
+                var piece = ExactPiece(station);
+                Equal(false, NewStationOverride().Apply(piece));
+                Equal(station, piece.Station!);
+            });
+            Run("unrelated station display name stays unchanged", () =>
+            {
+                var station = ExactStation();
+                station.DisplayName = "$piece_workbench";
+                var piece = ExactPiece(station);
+                Equal(false, NewStationOverride().Apply(piece));
+                Equal(station, piece.Station!);
+            });
+            Run("already stationless piece is not claimed", () =>
+            {
+                var piece = ExactPiece(null);
+                var stationOverride = NewStationOverride();
+                Equal(false, stationOverride.Apply(piece));
+                Equal(false, stationOverride.IsApplied);
+            });
+            Run("identity matching remains ordinal and case-sensitive", () =>
+            {
+                var station = ExactStation();
+                var piece = ExactPiece(station);
+                piece.PrefabName = "Paved_Road";
+                Equal(false, NewStationOverride().Apply(piece));
+                Equal(station, piece.Station!);
+            });
+            Run("restore never overwrites another runtime station change", () =>
+            {
+                var piece = ExactPiece(ExactStation());
+                var stationOverride = NewStationOverride();
+                stationOverride.Apply(piece);
+                var replacement = new FakeStation("custom_station", "$piece_customstation");
+                piece.Station = replacement;
+                Equal(false, stationOverride.Restore());
+                Equal(replacement, piece.Station!);
+            });
+        }
 
-            Run("vanilla satisfied station result is never downgraded", () =>
-                Equal(true, PavedRoadPlacementPolicy.ResolveStationSatisfied(
-                    true, false, BuildRequirementCheck.CanBuild,
-                    "unrelated_piece", "$piece_unrelated", "piece_workbench", "$piece_workbench")));
-            Run("failed station result is promoted only for the enabled exact paved road", () =>
-                Equal(true, PavedRoadPlacementPolicy.ResolveStationSatisfied(
-                    false, true, BuildRequirementCheck.CanBuild,
-                    prefab, display, stationPrefab, stationDisplay)));
-            Run("enabled paved road CanBuild check bypasses station range", () =>
-                Equal(true, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, stationDisplay)));
-            Run("disabled setting restores vanilla station requirement", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    false, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, stationDisplay)));
-            Run("known-piece check still requires vanilla station knowledge", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.IsKnown, prefab, display, stationPrefab, stationDisplay)));
-            Run("almost-build check keeps vanilla station knowledge rule", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanAlmostBuild, prefab, display, stationPrefab, stationDisplay)));
-            Run("unrelated prefab remains vanilla", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, "stone_floor_2x2", display, stationPrefab, stationDisplay)));
-            Run("unrelated display identity remains vanilla", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, "$piece_stonefloor", stationPrefab, stationDisplay)));
-            Run("unrelated crafting station remains vanilla", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, "piece_workbench", stationDisplay)));
-            Run("unrelated station display remains vanilla", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, "$piece_workbench")));
-            Run("paved road identity does not depend on runtime component location", () =>
-                Equal(true, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, stationDisplay)));
-            Run("missing prefab identity fails closed", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, null!, display, stationPrefab, stationDisplay)));
-            Run("missing display identity fails closed", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, null!, stationPrefab, stationDisplay)));
-            Run("missing station prefab identity fails closed", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, null!, stationDisplay)));
-            Run("missing station display identity fails closed", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, null!)));
-            Run("prefab identity is ordinal and case-sensitive", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, "Paved_Road", display, stationPrefab, stationDisplay)));
-            Run("station prefab identity is ordinal and case-sensitive", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, "Piece_Stonecutter", stationDisplay)));
-            Run("station display identity is ordinal and case-sensitive", () =>
-                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, "$piece_Stonecutter")));
+        private static PavedRoadStationOverride<FakePiece, FakeStation> NewStationOverride()
+            => new PavedRoadStationOverride<FakePiece, FakeStation>(
+                piece => piece.PrefabName,
+                piece => piece.DisplayName,
+                piece => piece.Station!,
+                (piece, station) => piece.Station = station,
+                station => station.PrefabName,
+                station => station.DisplayName);
+
+        private static FakeStation ExactStation()
+            => new FakeStation(
+                PavedRoadStationOverride<FakePiece, FakeStation>.VanillaStationPrefabName,
+                PavedRoadStationOverride<FakePiece, FakeStation>.VanillaStationDisplayName);
+
+        private static FakePiece ExactPiece(FakeStation? station)
+            => new FakePiece(
+                PavedRoadStationOverride<FakePiece, FakeStation>.VanillaPrefabName,
+                PavedRoadStationOverride<FakePiece, FakeStation>.VanillaDisplayName,
+                station);
+
+        private sealed class FakePiece
+        {
+            internal FakePiece(string prefabName, string displayName, FakeStation? station)
+            {
+                PrefabName = prefabName;
+                DisplayName = displayName;
+                Station = station;
+            }
+
+            internal string PrefabName { get; set; }
+            internal string DisplayName { get; set; }
+            internal FakeStation? Station { get; set; }
+        }
+
+        private sealed class FakeStation
+        {
+            internal FakeStation(string prefabName, string displayName)
+            {
+                PrefabName = prefabName;
+                DisplayName = displayName;
+            }
+
+            internal string PrefabName { get; set; }
+            internal string DisplayName { get; set; }
         }
 
         private static void Run(string name, Action test)

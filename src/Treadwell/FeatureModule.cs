@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Reflection.Emit;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
@@ -81,14 +80,8 @@ namespace Treadwell
 
         private static readonly MethodInfo GetLastGroundColliderMethod =
             AccessTools.DeclaredMethod(typeof(Character), "GetLastGroundCollider", Type.EmptyTypes);
-        private static readonly MethodInfo HaveBuildStationInRangeMethod =
-            AccessTools.DeclaredMethod(typeof(CraftingStation), "HaveBuildStationInRange",
-                new[] { typeof(string), typeof(Vector3) });
-        private static readonly MethodInfo UnityObjectImplicitMethod =
-            AccessTools.Method(typeof(UnityEngine.Object), "op_Implicit", new[] { typeof(UnityEngine.Object) });
-        private static readonly MethodInfo AdjustStationSatisfiedMethod =
-            AccessTools.DeclaredMethod(typeof(RoadFeatureModule), nameof(AdjustStationSatisfied),
-                new[] { typeof(bool), typeof(Piece), typeof(Player.RequirementMode) });
+        private static readonly MethodInfo UpdateAvailablePiecesListMethod =
+            AccessTools.DeclaredMethod(typeof(Player), "UpdateAvailablePiecesList", Type.EmptyTypes);
 
         private readonly ConfigEntry<bool> _pavedRoadWithoutStonecutter;
         private readonly ConfigEntry<float> _dirtSpeed;
@@ -96,6 +89,9 @@ namespace Treadwell
         private readonly ConfigEntry<float> _pavedSpeed;
         private readonly ConfigEntry<float> _pavedStamina;
         private readonly RoadSurfaceTracker _surfaceTracker = new RoadSurfaceTracker(NaturalGapHoldSeconds);
+        private readonly PavedRoadStationOverride<Piece, CraftingStation> _stationOverride;
+        private PieceTable _lastPieceTable;
+        private bool _pavedSettingSubscribed;
 
         internal RoadFeatureModule(
             ConfigEntry<bool> enabled,
@@ -112,22 +108,37 @@ namespace Treadwell
             _dirtStamina = dirtStamina ?? throw new ArgumentNullException(nameof(dirtStamina));
             _pavedSpeed = pavedSpeed ?? throw new ArgumentNullException(nameof(pavedSpeed));
             _pavedStamina = pavedStamina ?? throw new ArgumentNullException(nameof(pavedStamina));
+            _stationOverride = new PavedRoadStationOverride<Piece, CraftingStation>(
+                piece => piece.gameObject != null ? piece.gameObject.name : null,
+                piece => piece.m_name,
+                piece => piece.m_craftingStation,
+                (piece, station) => piece.m_craftingStation = station,
+                station => station.gameObject != null ? station.gameObject.name : null,
+                station => station.m_name);
         }
 
         public override void ValidateCompatibility(ICollection<string> failures)
         {
-            CompatibilityGate.RequireMethod(failures, typeof(Player), "HaveRequirements", typeof(bool),
+            CompatibilityGate.RequireMethod(failures, typeof(PieceTable), "UpdateAvailable", typeof(void),
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
-                new[] { typeof(Piece), typeof(Player.RequirementMode) }, method => !method.IsStatic);
+                new[] { typeof(HashSet<string>), typeof(Player), typeof(bool), typeof(bool) }, method => !method.IsStatic);
+            CompatibilityGate.RequireField(failures, typeof(PieceTable), "m_pieces", typeof(List<GameObject>),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireMethod(failures, typeof(ZNetScene), "OnDestroy", typeof(void),
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
+                method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(Player), "GetBuildPieces", typeof(List<Piece>),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes,
+                method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(Player), "UpdateAvailablePiecesList", typeof(void),
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
+                method => !method.IsStatic);
             CompatibilityGate.RequireField(failures, typeof(Piece), "m_name", typeof(string),
                 BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireField(failures, typeof(Piece), "m_craftingStation", typeof(CraftingStation),
                 BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireField(failures, typeof(CraftingStation), "m_name", typeof(string),
                 BindingFlags.Instance | BindingFlags.Public);
-            CompatibilityGate.RequireMethod(failures, typeof(CraftingStation), "HaveBuildStationInRange", typeof(CraftingStation),
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly,
-                new[] { typeof(string), typeof(Vector3) }, method => method.IsStatic);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "GetRunSpeedFactor", typeof(float),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => method.IsFamily && method.IsVirtual);
@@ -165,9 +176,12 @@ namespace Treadwell
 
             _activeModule = this;
             Harmony.Patch(
-                AccessTools.DeclaredMethod(typeof(Player), "HaveRequirements",
-                    new[] { typeof(Piece), typeof(Player.RequirementMode) }),
-                transpiler: new HarmonyMethod(typeof(RoadFeatureModule), nameof(HaveRequirementsTranspiler)));
+                AccessTools.DeclaredMethod(typeof(PieceTable), "UpdateAvailable",
+                    new[] { typeof(HashSet<string>), typeof(Player), typeof(bool), typeof(bool) }),
+                prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PieceTableUpdateAvailablePrefix)));
+            Harmony.Patch(
+                AccessTools.DeclaredMethod(typeof(ZNetScene), "OnDestroy", Type.EmptyTypes),
+                prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(ZNetSceneOnDestroyPrefix)));
             Harmony.Patch(
                 AccessTools.DeclaredMethod(typeof(Player), "GetRunSpeedFactor", Type.EmptyTypes),
                 postfix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(GetRunSpeedFactorPostfix)));
@@ -175,75 +189,142 @@ namespace Treadwell
                 AccessTools.DeclaredMethod(typeof(SEMan), "ModifyRunStaminaDrain",
                     new[] { typeof(float), typeof(float).MakeByRefType(), typeof(Vector3), typeof(bool) }),
                 postfix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(ModifyRunStaminaDrainPostfix)));
+
+            _pavedRoadWithoutStonecutter.SettingChanged += OnPavedRoadSettingChanged;
+            _pavedSettingSubscribed = true;
+            RefreshCurrentBuildPieces();
+            RefreshPlayerAvailablePieces();
         }
 
         protected override void OnDisabled()
         {
+            if (_pavedSettingSubscribed)
+            {
+                _pavedRoadWithoutStonecutter.SettingChanged -= OnPavedRoadSettingChanged;
+                _pavedSettingSubscribed = false;
+            }
+            RestorePavedRoadStation();
+            try { RefreshPlayerAvailablePieces(); }
+            catch (Exception exception) { Log.LogWarning("Could not refresh vanilla build-piece availability during cleanup: " + exception); }
+            _lastPieceTable = null;
             if (ReferenceEquals(_activeModule, this)) _activeModule = null;
             _surfaceTracker.Reset();
         }
 
-        private static IEnumerable<CodeInstruction> HaveRequirementsTranspiler(
-            IEnumerable<CodeInstruction> instructions)
+        private static void PieceTableUpdateAvailablePrefix(PieceTable __instance)
         {
-            var patched = new List<CodeInstruction>(instructions);
-            var insertAt = -1;
-            for (var index = 0; index + 1 < patched.Count; index++)
+            _activeModule?.RefreshPavedRoadStation(__instance);
+        }
+
+        private static void ZNetSceneOnDestroyPrefix()
+        {
+            var module = _activeModule;
+            if (module == null) return;
+            module.RestorePavedRoadStation();
+            module._lastPieceTable = null;
+        }
+
+        private void OnPavedRoadSettingChanged(object sender, EventArgs eventArgs)
+        {
+            try
             {
-                if (!patched[index].Calls(HaveBuildStationInRangeMethod) ||
-                    !patched[index + 1].Calls(UnityObjectImplicitMethod))
-                    continue;
-                if (insertAt >= 0)
-                    throw new InvalidOperationException("Player.HaveRequirements contains multiple station-range checks.");
-                insertAt = index + 2;
+                if (_pavedRoadWithoutStonecutter.Value) RefreshCurrentBuildPieces();
+                else RestorePavedRoadStation();
+                RefreshPlayerAvailablePieces();
+            }
+            catch (Exception exception)
+            {
+                RestorePavedRoadStation();
+                Log.LogError("Paved Road recipe update failed; the vanilla station requirement was restored: " + exception);
+            }
+        }
+
+        private void RefreshCurrentBuildPieces()
+        {
+            if (!_pavedRoadWithoutStonecutter.Value)
+            {
+                RestorePavedRoadStation();
+                return;
             }
 
-            if (insertAt < 0)
-                throw new InvalidOperationException("Player.HaveRequirements station-range check is not the verified build.");
-            if (insertAt >= patched.Count || patched[insertAt].labels.Count != 0 || patched[insertAt].blocks.Count != 0)
-                throw new InvalidOperationException("Player.HaveRequirements station-range result crosses a control-flow boundary.");
-
-            patched.InsertRange(insertAt, new[]
+            var table = _lastPieceTable;
+            if (table != null)
             {
-                new CodeInstruction(OpCodes.Ldarg_1),
-                new CodeInstruction(OpCodes.Ldarg_2),
-                new CodeInstruction(OpCodes.Call, AdjustStationSatisfiedMethod)
-            });
-            return patched;
+                RefreshPavedRoadStation(table);
+                return;
+            }
+
+            var player = Player.m_localPlayer;
+            var pieces = player != null ? player.GetBuildPieces() : null;
+            if (pieces == null) return;
+            foreach (var piece in pieces)
+            {
+                if (!IsPavedRoadPiece(piece)) continue;
+                ApplyPavedRoadStationOverride(piece);
+                return;
+            }
         }
 
-        private static bool AdjustStationSatisfied(
-            bool stationSatisfied,
-            Piece piece,
-            Player.RequirementMode mode)
+        private static void RefreshPlayerAvailablePieces()
         {
-            if (stationSatisfied) return true;
-
-            var module = _activeModule;
-            if (module == null || piece == null || piece.m_craftingStation == null) return false;
-            var check = ToBuildRequirementCheck(mode);
-            if (!check.HasValue) return false;
-
-            var pieceObject = piece.gameObject;
-            var stationObject = piece.m_craftingStation.gameObject;
-            return PavedRoadPlacementPolicy.ResolveStationSatisfied(
-                stationSatisfied,
-                module._pavedRoadWithoutStonecutter.Value,
-                check.Value,
-                pieceObject != null ? pieceObject.name : null,
-                piece.m_name,
-                stationObject != null ? stationObject.name : null,
-                piece.m_craftingStation.m_name);
+            var player = Player.m_localPlayer;
+            if (player != null) UpdateAvailablePiecesListMethod.Invoke(player, null);
         }
 
-        private static BuildRequirementCheck? ToBuildRequirementCheck(Player.RequirementMode mode)
+        private void RefreshPavedRoadStation(PieceTable table)
         {
-            switch (mode)
+            if (table == null) return;
+            if (!_pavedRoadWithoutStonecutter.Value)
             {
-                case Player.RequirementMode.CanBuild: return BuildRequirementCheck.CanBuild;
-                case Player.RequirementMode.IsKnown: return BuildRequirementCheck.IsKnown;
-                case Player.RequirementMode.CanAlmostBuild: return BuildRequirementCheck.CanAlmostBuild;
-                default: return null;
+                RestorePavedRoadStation();
+                return;
+            }
+
+            var piece = FindPavedRoadPiece(table);
+            if (piece == null) return;
+            _lastPieceTable = table;
+            ApplyPavedRoadStationOverride(piece);
+        }
+
+        private void ApplyPavedRoadStationOverride(Piece piece)
+        {
+            if (piece == null || _stationOverride.IsAppliedTo(piece)) return;
+            var station = piece.m_craftingStation;
+            if (station == null || station.gameObject == null ||
+                !string.Equals(station.gameObject.name, PavedRoadStationOverride<Piece, CraftingStation>.VanillaStationPrefabName, StringComparison.Ordinal) ||
+                !string.Equals(station.m_name, PavedRoadStationOverride<Piece, CraftingStation>.VanillaStationDisplayName, StringComparison.Ordinal))
+                return;
+
+            _stationOverride.Apply(piece);
+        }
+
+        private static Piece FindPavedRoadPiece(PieceTable table)
+        {
+            foreach (var pieceObject in table.m_pieces)
+            {
+                if (pieceObject == null) continue;
+                var piece = pieceObject.GetComponent<Piece>();
+                if (IsPavedRoadPiece(piece)) return piece;
+            }
+            return null;
+        }
+
+        private static bool IsPavedRoadPiece(Piece piece)
+            => piece != null && piece.gameObject != null &&
+               string.Equals(piece.gameObject.name, PavedRoadStationOverride<Piece, CraftingStation>.VanillaPrefabName, StringComparison.Ordinal) &&
+               string.Equals(piece.m_name, PavedRoadStationOverride<Piece, CraftingStation>.VanillaDisplayName, StringComparison.Ordinal);
+
+        private void RestorePavedRoadStation()
+        {
+            if (!_stationOverride.IsApplied) return;
+            try
+            {
+                if (!_stationOverride.Restore())
+                    Log.LogWarning("Did not restore the Paved Road station because another runtime change replaced it.");
+            }
+            catch (MissingReferenceException)
+            {
+                _stationOverride.Forget();
             }
         }
 

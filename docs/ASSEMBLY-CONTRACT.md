@@ -5,11 +5,13 @@ Inspected reference: Valheim `1.0.12`, Steam build `25253764`.
 - `assembly_valheim.dll` SHA-256: `27a766a8d23a7bd8b6a54fb9ad0452a96c305fb3629b39c40527c09a1c393a84`
 - Module MVID: `b8a6fd30-3061-43b3-99f2-11c2e315bc54`
 
-## Paved-road placement
+## Paved-road recipe
 
-`Player.HaveRequirements(Piece, Player.RequirementMode) -> bool` checks the selected piece's crafting station before DLC, free-build, and material requirements. For `CanBuild`, the verified method contains exactly one consecutive call sequence from `CraftingStation.HaveBuildStationInRange(string, Vector3)` to Unity's object-to-boolean conversion. `Player.UpdatePlacement` uses this result before `TryPlacePiece`; after successful placement it calls the unchanged `ConsumeResources` path.
+The verified `PieceTable.UpdateAvailable(HashSet<string>, Player, bool, bool)` method refreshes piece availability from the table's public `m_pieces : List<GameObject>` collection. Each entry carries its live `Piece` component, whose public `m_craftingStation : CraftingStation` field is Valheim's recipe-level station requirement. `Player.GetBuildPieces() -> List<Piece>` exposes the local player's current build entries, and private `Player.UpdateAvailablePiecesList()` refreshes them immediately after a live setting change. `ZNetScene.OnDestroy()` is the verified scene-lifecycle cleanup hook.
 
-Treadwell inserts one fail-closed boolean adjustment directly after that unique station-range result. A false result changes to true only when the option is enabled and the request is `CanBuild` for the exact `paved_road` / `$piece_pavedroad` / `$piece_stonecutter` identity with a `TerrainModifier.PaintType.Paved` component. The remaining vanilla method still checks DLC, free-build, and every stone requirement. `IsKnown` and `CanAlmostBuild`, repairs/removals, other pieces, other stations, placement validity, resource consumption, tool stamina/durability, skills, stats, and effects are untouched.
+Before `PieceTable.UpdateAvailable` runs, Treadwell searches that exact table for `paved_road` / `$piece_pavedroad` with the original `piece_stonecutter` / `$piece_stonecutter` reference. It captures that exact `CraftingStation` object and sets only the matching `Piece.m_craftingStation` field to `null`. The normal Paved Road name/recipe-knowledge gate still runs, while every station, build-menu, HUD, and placement path observes a stationless Paved Road without patching `Player.HaveRequirements`.
+
+Disabling the setting, disabling the module, destroying the scene `ZNetScene`, or unloading the plugin restores the captured original object if the field is still `null`. If another runtime component replaces the field while Treadwell owns the override, cleanup does not overwrite that external change. Piece-table replacement restores the old piece before changing the new exact match. Stone requirements, unlock knowledge, repairs/removals, other pieces, placement validity, resource consumption, tool stamina/durability, skills, stats, and effects remain vanilla.
 
 ## Terrain
 
@@ -37,4 +39,4 @@ Treadwell applies one postfix to `SEMan.ModifyRunStaminaDrain` and multiplies th
 
 ## Fail-closed checks
 
-Runtime startup validates the exact versions, SHA-256, MVID, method signatures, field signatures, parameter name used by the stamina postfix, and paint colors before installing the three patches. The station transpiler additionally refuses to install unless its call sequence occurs exactly once. A separate build-time metadata reader checks the same assembly contract and exact station call sequence without loading game code.
+Runtime startup validates the exact versions, SHA-256, MVID, piece-table and lifecycle method signatures, field signatures, parameter name used by the stamina postfix, and paint colors before installing the four hooks. A separate build-time metadata reader checks the same assembly contract without loading game code. Treadwell performs no runtime recipe mutation if any pinned contract check fails.

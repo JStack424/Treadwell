@@ -32,15 +32,15 @@ Treadwell creates six settings in `BepInEx/config/com.jstack424.treadwell.cfg`:
 - Paved sprint-speed bonus percentage (default 20%)
 - Paved sprint-stamina reduction percentage (default 20%)
 
-The stonecutter option is read live. Disabling it restores Valheim's exact nearby-stonecutter rule; stone cost, unlock knowledge, hoe behavior, repairs, and unrelated pieces are never bypassed. The bypass identifies the exact vanilla piece through its piece and stonecutter prefab/display identities rather than depending on terrain-component placement. All percentages are independently constrained to 0–100 and are read live.
+The stonecutter option is read live. When enabled, Treadwell removes the crafting-station reference from only the exact vanilla Paved Road entry in the active hoe piece table. Disabling it restores the captured original stonecutter object. Stone cost, unlock knowledge, hoe behavior, repairs, and unrelated pieces remain unchanged. All percentages are independently constrained to 0–100 and are read live.
 
 If you used an earlier test build, BepInEx may retain its older values. Delete `BepInEx/config/com.jstack424.treadwell.cfg` once to regenerate the current defaults, or set the four percentages manually to 10, 10, 20, and 20.
 
 ## Compatibility and safety
 
-Treadwell 0.1.1 supports exactly **Valheim 1.0.12 / Steam build 25253764**. It validates the pinned runtime, build-requirement and movement hooks, terrain APIs, and enum encodings before installing its Harmony patches. The paved-road change adjusts only the nearby-station result inside Valheim's existing requirement check; all resource and placement handling remains vanilla. An unverified game update or changed instruction pattern disables Treadwell instead of guessing.
+Treadwell 0.1.1 supports exactly **Valheim 1.0.12 / Steam build 25253764**. It validates the pinned runtime, piece-table and movement hooks, terrain APIs, and field contracts before installing its Harmony patches. The paved-road change sets only the exact vanilla Paved Road recipe's crafting-station reference to `null`, locally and reversibly; all resource and placement handling remains vanilla. An unverified game update or changed contract disables Treadwell instead of guessing.
 
-The core road bonuses have been live-tested in Valheim. The stonecutter bypass and multiplayer behavior still require live validation, and future game versions are not assumed compatible.
+The core road bonuses have been live-tested in Valheim. The recipe-level stonecutter removal and multiplayer behavior still require live validation, and future game versions are not assumed compatible.
 
 ## Source and issues
 
