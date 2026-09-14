@@ -128,8 +128,6 @@ namespace Treadwell
             CompatibilityGate.RequireMethod(failures, typeof(CraftingStation), "HaveBuildStationInRange", typeof(CraftingStation),
                 BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly,
                 new[] { typeof(string), typeof(Vector3) }, method => method.IsStatic);
-            CompatibilityGate.RequireField(failures, typeof(TerrainModifier), "m_paintType", typeof(TerrainModifier.PaintType),
-                BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "GetRunSpeedFactor", typeof(float),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => method.IsFamily && method.IsVirtual);
@@ -226,14 +224,16 @@ namespace Treadwell
             var check = ToBuildRequirementCheck(mode);
             if (!check.HasValue) return false;
 
-            var terrainModifier = piece.GetComponent<TerrainModifier>();
-            return PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
+            var pieceObject = piece.gameObject;
+            var stationObject = piece.m_craftingStation.gameObject;
+            return PavedRoadPlacementPolicy.ResolveStationSatisfied(
+                stationSatisfied,
                 module._pavedRoadWithoutStonecutter.Value,
                 check.Value,
-                piece.gameObject != null ? piece.gameObject.name : null,
+                pieceObject != null ? pieceObject.name : null,
                 piece.m_name,
-                piece.m_craftingStation.m_name,
-                terrainModifier != null && terrainModifier.m_paintType == TerrainModifier.PaintType.Paved);
+                stationObject != null ? stationObject.name : null,
+                piece.m_craftingStation.m_name);
         }
 
         private static BuildRequirementCheck? ToBuildRequirementCheck(Player.RequirementMode mode)

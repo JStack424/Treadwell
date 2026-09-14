@@ -90,13 +90,14 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn('typeof(Player), "HaveRequirements"', module)
         self.assertIn("HaveRequirementsTranspiler", module)
         self.assertIn("AdjustStationSatisfied", module)
-        self.assertIn("PavedRoadPlacementPolicy.ShouldIgnoreStationRange", module)
+        self.assertIn("PavedRoadPlacementPolicy.ResolveStationSatisfied", module)
         self.assertIn("HaveBuildStationInRangeMethod", module)
         self.assertIn("UnityObjectImplicitMethod", module)
         self.assertIn("multiple station-range checks", module)
         self.assertIn("station-range check is not the verified build", module)
         self.assertIn("station-range result crosses a control-flow boundary", module)
-        self.assertIn("TerrainModifier.PaintType.Paved", module)
+        self.assertIn("piece.m_craftingStation.gameObject", module)
+        self.assertNotIn("GetComponent<TerrainModifier>", module)
         self.assertNotIn("m_craftingStation = null", module)
         self.assertIn('typeof(Player), "GetRunSpeedFactor"', module)
         self.assertIn('typeof(SEMan), "ModifyRunStaminaDrain"', module)
@@ -109,7 +110,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("TerrainSurface.Cultivated", core)
         self.assertIn("TerrainSurface.NonTerrain", core)
         self.assertIn("NaturalGapHoldSeconds = 0.18d", module)
-        for marker in ('"paved_road"', '"$piece_pavedroad"', '"$piece_stonecutter"', "BuildRequirementCheck.CanBuild"):
+        for marker in ('"paved_road"', '"$piece_pavedroad"', '"piece_stonecutter"', '"$piece_stonecutter"', "BuildRequirementCheck.CanBuild"):
             self.assertIn(marker, placement_policy)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
 
@@ -124,6 +125,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "GetRunSpeedFactor", "ModifyRunStaminaDrain", "GetPaintMask", "m_character",
             "m_localPlayer", "m_craftingStation", "m_paintMaskDirt",
             "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType",
+            "HaveRequirementsStationFailureBranch", "RequirementCallSite", "NoDirectStationCall",
         ):
             self.assertIn(marker, compatibility_test)
         for marker in ("RequireMethod", "RequireField", "RequireColor"):

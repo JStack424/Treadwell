@@ -42,7 +42,7 @@ Treadwell creates exactly six settings in `BepInEx/config/com.jstack424.treadwel
 5. `Paved sprint speed bonus (%)` (default `20`)
 6. `Paved sprint stamina reduction (%)` (default `20`)
 
-The stonecutter option is read live. Turning it off restores Valheim's exact nearby-stonecutter requirement. It never changes the paved road's stone cost, unlock knowledge, terrain checks, hoe behavior, repairs, or unrelated pieces and stations.
+The stonecutter option is read live. Turning it off restores Valheim's exact nearby-stonecutter requirement. It never changes the paved road's stone cost, unlock knowledge, terrain checks, hoe behavior, repairs, or unrelated pieces and stations. The bypass identifies the exact vanilla piece through its piece and stonecutter prefab/display identities; it does not depend on where Valheim places terrain components at runtime.
 
 All percentages are constrained to `0–100` and are read live. The master switch installs or removes Treadwell's isolated Harmony patches.
 

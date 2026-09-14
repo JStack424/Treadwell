@@ -13,7 +13,7 @@ namespace Treadwell.Tests
             TuningTests();
             HysteresisTests();
             PavedRoadPlacementTests();
-            Console.WriteLine(_passed + "/42 core tests passed");
+            Console.WriteLine(_passed + "/47 core tests passed");
             return 0;
         }
 
@@ -115,47 +115,65 @@ namespace Treadwell.Tests
         {
             const string prefab = PavedRoadPlacementPolicy.VanillaPrefabName;
             const string display = PavedRoadPlacementPolicy.VanillaDisplayName;
-            const string station = PavedRoadPlacementPolicy.VanillaStationName;
+            const string stationPrefab = PavedRoadPlacementPolicy.VanillaStationPrefabName;
+            const string stationDisplay = PavedRoadPlacementPolicy.VanillaStationDisplayName;
 
+            Run("vanilla satisfied station result is never downgraded", () =>
+                Equal(true, PavedRoadPlacementPolicy.ResolveStationSatisfied(
+                    true, false, BuildRequirementCheck.CanBuild,
+                    "unrelated_piece", "$piece_unrelated", "piece_workbench", "$piece_workbench")));
+            Run("failed station result is promoted only for the enabled exact paved road", () =>
+                Equal(true, PavedRoadPlacementPolicy.ResolveStationSatisfied(
+                    false, true, BuildRequirementCheck.CanBuild,
+                    prefab, display, stationPrefab, stationDisplay)));
             Run("enabled paved road CanBuild check bypasses station range", () =>
                 Equal(true, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, station, true)));
+                    true, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, stationDisplay)));
             Run("disabled setting restores vanilla station requirement", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    false, BuildRequirementCheck.CanBuild, prefab, display, station, true)));
+                    false, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, stationDisplay)));
             Run("known-piece check still requires vanilla station knowledge", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.IsKnown, prefab, display, station, true)));
+                    true, BuildRequirementCheck.IsKnown, prefab, display, stationPrefab, stationDisplay)));
             Run("almost-build check keeps vanilla station knowledge rule", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanAlmostBuild, prefab, display, station, true)));
+                    true, BuildRequirementCheck.CanAlmostBuild, prefab, display, stationPrefab, stationDisplay)));
             Run("unrelated prefab remains vanilla", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, "stone_floor_2x2", display, station, true)));
+                    true, BuildRequirementCheck.CanBuild, "stone_floor_2x2", display, stationPrefab, stationDisplay)));
             Run("unrelated display identity remains vanilla", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, "$piece_stonefloor", station, true)));
+                    true, BuildRequirementCheck.CanBuild, prefab, "$piece_stonefloor", stationPrefab, stationDisplay)));
             Run("unrelated crafting station remains vanilla", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, "$piece_workbench", true)));
-            Run("non-paved terrain modifier remains vanilla", () =>
+                    true, BuildRequirementCheck.CanBuild, prefab, display, "piece_workbench", stationDisplay)));
+            Run("unrelated station display remains vanilla", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, station, false)));
+                    true, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, "$piece_workbench")));
+            Run("paved road identity does not depend on runtime component location", () =>
+                Equal(true, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
+                    true, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, stationDisplay)));
             Run("missing prefab identity fails closed", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, null!, display, station, true)));
+                    true, BuildRequirementCheck.CanBuild, null!, display, stationPrefab, stationDisplay)));
             Run("missing display identity fails closed", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, null!, station, true)));
-            Run("missing station identity fails closed", () =>
+                    true, BuildRequirementCheck.CanBuild, prefab, null!, stationPrefab, stationDisplay)));
+            Run("missing station prefab identity fails closed", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, null!, true)));
+                    true, BuildRequirementCheck.CanBuild, prefab, display, null!, stationDisplay)));
+            Run("missing station display identity fails closed", () =>
+                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
+                    true, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, null!)));
             Run("prefab identity is ordinal and case-sensitive", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, "Paved_Road", display, station, true)));
-            Run("station identity is ordinal and case-sensitive", () =>
+                    true, BuildRequirementCheck.CanBuild, "Paved_Road", display, stationPrefab, stationDisplay)));
+            Run("station prefab identity is ordinal and case-sensitive", () =>
                 Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
-                    true, BuildRequirementCheck.CanBuild, prefab, display, "$piece_Stonecutter", true)));
+                    true, BuildRequirementCheck.CanBuild, prefab, display, "Piece_Stonecutter", stationDisplay)));
+            Run("station display identity is ordinal and case-sensitive", () =>
+                Equal(false, PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
+                    true, BuildRequirementCheck.CanBuild, prefab, display, stationPrefab, "$piece_Stonecutter")));
         }
 
         private static void Run(string name, Action test)

@@ -17,22 +17,41 @@ namespace Treadwell.Core
     {
         public const string VanillaPrefabName = "paved_road";
         public const string VanillaDisplayName = "$piece_pavedroad";
-        public const string VanillaStationName = "$piece_stonecutter";
+        public const string VanillaStationPrefabName = "piece_stonecutter";
+        public const string VanillaStationDisplayName = "$piece_stonecutter";
+
+        public static bool ResolveStationSatisfied(
+            bool stationSatisfied,
+            bool enabled,
+            BuildRequirementCheck check,
+            string prefabName,
+            string displayName,
+            string stationPrefabName,
+            string stationDisplayName)
+        {
+            return stationSatisfied || ShouldIgnoreStationRange(
+                enabled,
+                check,
+                prefabName,
+                displayName,
+                stationPrefabName,
+                stationDisplayName);
+        }
 
         public static bool ShouldIgnoreStationRange(
             bool enabled,
             BuildRequirementCheck check,
             string prefabName,
             string displayName,
-            string stationName,
-            bool isPavedTerrainModifier)
+            string stationPrefabName,
+            string stationDisplayName)
         {
             return enabled &&
                    check == BuildRequirementCheck.CanBuild &&
                    string.Equals(prefabName, VanillaPrefabName, StringComparison.Ordinal) &&
                    string.Equals(displayName, VanillaDisplayName, StringComparison.Ordinal) &&
-                   string.Equals(stationName, VanillaStationName, StringComparison.Ordinal) &&
-                   isPavedTerrainModifier;
+                   string.Equals(stationPrefabName, VanillaStationPrefabName, StringComparison.Ordinal) &&
+                   string.Equals(stationDisplayName, VanillaStationDisplayName, StringComparison.Ordinal);
         }
     }
 }

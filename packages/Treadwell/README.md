@@ -32,7 +32,7 @@ Treadwell creates six settings in `BepInEx/config/com.jstack424.treadwell.cfg`:
 - Paved sprint-speed bonus percentage (default 20%)
 - Paved sprint-stamina reduction percentage (default 20%)
 
-The stonecutter option is read live. Disabling it restores Valheim's exact nearby-stonecutter rule; stone cost, unlock knowledge, hoe behavior, repairs, and unrelated pieces are never bypassed. All percentages are independently constrained to 0–100 and are read live.
+The stonecutter option is read live. Disabling it restores Valheim's exact nearby-stonecutter rule; stone cost, unlock knowledge, hoe behavior, repairs, and unrelated pieces are never bypassed. The bypass identifies the exact vanilla piece through its piece and stonecutter prefab/display identities rather than depending on terrain-component placement. All percentages are independently constrained to 0–100 and are read live.
 
 If you used an earlier test build, BepInEx may retain its older values. Delete `BepInEx/config/com.jstack424.treadwell.cfg` once to regenerate the current defaults, or set the four percentages manually to 10, 10, 20, and 20.
 
