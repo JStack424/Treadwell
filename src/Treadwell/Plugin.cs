@@ -18,7 +18,9 @@ namespace Treadwell
         {
             var percentageRange = new AcceptableValueRange<float>(0f, 100f);
             var modEnabled = Config.Bind("General", "Enable mod", true,
-                "Master switch for all Treadwell road bonuses.");
+                "Master switch for all Treadwell features.");
+            var pavedRoadWithoutStonecutter = Config.Bind("Road building", "Paved roads without stonecutter", true,
+                "Allow the vanilla paved-road terrain piece to be placed without a nearby stonecutter. Stone cost and every other placement rule remain unchanged.");
             var dirtSpeed = Config.Bind("Road bonuses", "Dirt sprint speed bonus (%)", 10f,
                 new ConfigDescription("Extra sprint speed on vanilla dirt paths.", percentageRange));
             var dirtStamina = Config.Bind("Road bonuses", "Dirt sprint stamina reduction (%)", 10f,
@@ -31,7 +33,7 @@ namespace Treadwell
             Logger.LogInfo(PluginName + " " + PluginVersion + " (" + GeneratedBuildInfo.Commit + ") loading.");
             _features = new FeatureHost(new IFeatureModule[]
             {
-                new RoadFeatureModule(modEnabled, dirtSpeed, dirtStamina, pavedSpeed, pavedStamina, Logger)
+                new RoadFeatureModule(modEnabled, pavedRoadWithoutStonecutter, dirtSpeed, dirtStamina, pavedSpeed, pavedStamina, Logger)
             }, Logger);
 
             var compatibility = CompatibilityGate.Evaluate(_features);

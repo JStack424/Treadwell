@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Reflection.Emit;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
@@ -80,7 +81,16 @@ namespace Treadwell
 
         private static readonly MethodInfo GetLastGroundColliderMethod =
             AccessTools.DeclaredMethod(typeof(Character), "GetLastGroundCollider", Type.EmptyTypes);
+        private static readonly MethodInfo HaveBuildStationInRangeMethod =
+            AccessTools.DeclaredMethod(typeof(CraftingStation), "HaveBuildStationInRange",
+                new[] { typeof(string), typeof(Vector3) });
+        private static readonly MethodInfo UnityObjectImplicitMethod =
+            AccessTools.Method(typeof(UnityEngine.Object), "op_Implicit", new[] { typeof(UnityEngine.Object) });
+        private static readonly MethodInfo AdjustStationSatisfiedMethod =
+            AccessTools.DeclaredMethod(typeof(RoadFeatureModule), nameof(AdjustStationSatisfied),
+                new[] { typeof(bool), typeof(Piece), typeof(Player.RequirementMode) });
 
+        private readonly ConfigEntry<bool> _pavedRoadWithoutStonecutter;
         private readonly ConfigEntry<float> _dirtSpeed;
         private readonly ConfigEntry<float> _dirtStamina;
         private readonly ConfigEntry<float> _pavedSpeed;
@@ -89,6 +99,7 @@ namespace Treadwell
 
         internal RoadFeatureModule(
             ConfigEntry<bool> enabled,
+            ConfigEntry<bool> pavedRoadWithoutStonecutter,
             ConfigEntry<float> dirtSpeed,
             ConfigEntry<float> dirtStamina,
             ConfigEntry<float> pavedSpeed,
@@ -96,6 +107,7 @@ namespace Treadwell
             ManualLogSource log)
             : base("roads", enabled, log)
         {
+            _pavedRoadWithoutStonecutter = pavedRoadWithoutStonecutter ?? throw new ArgumentNullException(nameof(pavedRoadWithoutStonecutter));
             _dirtSpeed = dirtSpeed ?? throw new ArgumentNullException(nameof(dirtSpeed));
             _dirtStamina = dirtStamina ?? throw new ArgumentNullException(nameof(dirtStamina));
             _pavedSpeed = pavedSpeed ?? throw new ArgumentNullException(nameof(pavedSpeed));
@@ -104,6 +116,20 @@ namespace Treadwell
 
         public override void ValidateCompatibility(ICollection<string> failures)
         {
+            CompatibilityGate.RequireMethod(failures, typeof(Player), "HaveRequirements", typeof(bool),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(Piece), typeof(Player.RequirementMode) }, method => !method.IsStatic);
+            CompatibilityGate.RequireField(failures, typeof(Piece), "m_name", typeof(string),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(Piece), "m_craftingStation", typeof(CraftingStation),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(CraftingStation), "m_name", typeof(string),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireMethod(failures, typeof(CraftingStation), "HaveBuildStationInRange", typeof(CraftingStation),
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(string), typeof(Vector3) }, method => method.IsStatic);
+            CompatibilityGate.RequireField(failures, typeof(TerrainModifier), "m_paintType", typeof(TerrainModifier.PaintType),
+                BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "GetRunSpeedFactor", typeof(float),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => method.IsFamily && method.IsVirtual);
@@ -141,6 +167,10 @@ namespace Treadwell
 
             _activeModule = this;
             Harmony.Patch(
+                AccessTools.DeclaredMethod(typeof(Player), "HaveRequirements",
+                    new[] { typeof(Piece), typeof(Player.RequirementMode) }),
+                transpiler: new HarmonyMethod(typeof(RoadFeatureModule), nameof(HaveRequirementsTranspiler)));
+            Harmony.Patch(
                 AccessTools.DeclaredMethod(typeof(Player), "GetRunSpeedFactor", Type.EmptyTypes),
                 postfix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(GetRunSpeedFactorPostfix)));
             Harmony.Patch(
@@ -153,6 +183,68 @@ namespace Treadwell
         {
             if (ReferenceEquals(_activeModule, this)) _activeModule = null;
             _surfaceTracker.Reset();
+        }
+
+        private static IEnumerable<CodeInstruction> HaveRequirementsTranspiler(
+            IEnumerable<CodeInstruction> instructions)
+        {
+            var patched = new List<CodeInstruction>(instructions);
+            var insertAt = -1;
+            for (var index = 0; index + 1 < patched.Count; index++)
+            {
+                if (!patched[index].Calls(HaveBuildStationInRangeMethod) ||
+                    !patched[index + 1].Calls(UnityObjectImplicitMethod))
+                    continue;
+                if (insertAt >= 0)
+                    throw new InvalidOperationException("Player.HaveRequirements contains multiple station-range checks.");
+                insertAt = index + 2;
+            }
+
+            if (insertAt < 0)
+                throw new InvalidOperationException("Player.HaveRequirements station-range check is not the verified build.");
+            if (insertAt >= patched.Count || patched[insertAt].labels.Count != 0 || patched[insertAt].blocks.Count != 0)
+                throw new InvalidOperationException("Player.HaveRequirements station-range result crosses a control-flow boundary.");
+
+            patched.InsertRange(insertAt, new[]
+            {
+                new CodeInstruction(OpCodes.Ldarg_1),
+                new CodeInstruction(OpCodes.Ldarg_2),
+                new CodeInstruction(OpCodes.Call, AdjustStationSatisfiedMethod)
+            });
+            return patched;
+        }
+
+        private static bool AdjustStationSatisfied(
+            bool stationSatisfied,
+            Piece piece,
+            Player.RequirementMode mode)
+        {
+            if (stationSatisfied) return true;
+
+            var module = _activeModule;
+            if (module == null || piece == null || piece.m_craftingStation == null) return false;
+            var check = ToBuildRequirementCheck(mode);
+            if (!check.HasValue) return false;
+
+            var terrainModifier = piece.GetComponent<TerrainModifier>();
+            return PavedRoadPlacementPolicy.ShouldIgnoreStationRange(
+                module._pavedRoadWithoutStonecutter.Value,
+                check.Value,
+                piece.gameObject != null ? piece.gameObject.name : null,
+                piece.m_name,
+                piece.m_craftingStation.m_name,
+                terrainModifier != null && terrainModifier.m_paintType == TerrainModifier.PaintType.Paved);
+        }
+
+        private static BuildRequirementCheck? ToBuildRequirementCheck(Player.RequirementMode mode)
+        {
+            switch (mode)
+            {
+                case Player.RequirementMode.CanBuild: return BuildRequirementCheck.CanBuild;
+                case Player.RequirementMode.IsKnown: return BuildRequirementCheck.IsKnown;
+                case Player.RequirementMode.CanAlmostBuild: return BuildRequirementCheck.CanAlmostBuild;
+                default: return null;
+            }
         }
 
         private static void GetRunSpeedFactorPostfix(Player __instance, ref float __result)

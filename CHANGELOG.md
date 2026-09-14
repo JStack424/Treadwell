@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1
+
+Local test candidate.
+
+- Added `Paved roads without stonecutter`, enabled by default, so the vanilla paved-road terrain piece can be placed outside stonecutter range.
+- Kept the normal stone cost, unlock knowledge, placement checks, hoe stamina and durability, effects, repairs, and every unrelated piece or crafting station unchanged.
+- Disabling the option restores Valheim's exact nearby-stonecutter requirement.
+- Added fail-closed paved-road identity checks, exact assembly-contract coverage, and enabled/disabled policy tests.
+
 ## 0.1.0
 
 Initial public release.

@@ -27,18 +27,27 @@ namespace Treadwell.Compatibility.Tests
             using var pe = new PEReader(stream);
             var reader = pe.GetMetadataReader();
             Equal(ExpectedMvid, reader.GetGuid(reader.GetModuleDefinition().Mvid), "assembly MVID");
-            var contract = new Contract(reader);
+            var contract = new Contract(reader, pe);
 
+            contract.Method("Player", "HaveRequirements", "System.Boolean",
+                new[] { "Piece", "RequirementMode" }, MethodAttributes.Public);
             contract.Method("Player", "GetRunSpeedFactor", "System.Single", Array.Empty<string>(),
                 MethodAttributes.Family | MethodAttributes.Virtual);
             contract.Method("SEMan", "ModifyRunStaminaDrain", "System.Void",
                 new[] { "System.Single", "System.Single&", "UnityEngine.Vector3", "System.Boolean" }, MethodAttributes.Public);
+            contract.Method("CraftingStation", "HaveBuildStationInRange", "CraftingStation",
+                new[] { "System.String", "UnityEngine.Vector3" }, MethodAttributes.Public | MethodAttributes.Static);
+            contract.HaveRequirementsStationCallSequence();
             contract.Method("Character", "IsOnGround", "System.Boolean", Array.Empty<string>(), MethodAttributes.Public);
             contract.Method("Character", "IsRunning", "System.Boolean", Array.Empty<string>(), MethodAttributes.Public);
             contract.Method("Character", "GetLastGroundCollider", "UnityEngine.Collider", Array.Empty<string>(), MethodAttributes.Public);
             contract.Method("Heightmap", "GetPaintMask", "UnityEngine.Color", new[] { "UnityEngine.Vector3" }, MethodAttributes.Public);
 
             contract.Field("Player", "m_localPlayer", "Player", FieldAttributes.Public | FieldAttributes.Static);
+            contract.Field("Piece", "m_name", "System.String", FieldAttributes.Public);
+            contract.Field("Piece", "m_craftingStation", "CraftingStation", FieldAttributes.Public);
+            contract.Field("CraftingStation", "m_name", "System.String", FieldAttributes.Public);
+            contract.Field("TerrainModifier", "m_paintType", "PaintType", FieldAttributes.Public);
             contract.Field("SEMan", "m_character", "Character", FieldAttributes.Private);
             contract.Field("Heightmap", "m_paintMaskDirt", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
             contract.Field("Heightmap", "m_paintMaskCultivated", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
@@ -50,8 +59,14 @@ namespace Treadwell.Compatibility.Tests
                 ["Cultivate"] = 1,
                 ["Paved"] = 2
             });
+            contract.EnumValues("Player", "RequirementMode", new Dictionary<string, int>
+            {
+                ["CanBuild"] = 0,
+                ["IsKnown"] = 1,
+                ["CanAlmostBuild"] = 2
+            });
 
-            Console.WriteLine(_passed + "/14 compatibility contract checks passed");
+            Console.WriteLine(_passed + "/22 compatibility contract checks passed");
             return 0;
         }
 
@@ -65,11 +80,13 @@ namespace Treadwell.Compatibility.Tests
         private sealed class Contract
         {
             private readonly MetadataReader _reader;
+            private readonly PEReader _pe;
             private readonly TypeNameProvider _provider;
 
-            internal Contract(MetadataReader reader)
+            internal Contract(MetadataReader reader, PEReader pe)
             {
                 _reader = reader;
+                _pe = pe;
                 _provider = new TypeNameProvider();
             }
 
@@ -88,6 +105,61 @@ namespace Treadwell.Compatibility.Tests
                     throw new InvalidOperationException(typeName + "." + methodName + " signature/attributes mismatch");
                 _passed++;
                 Console.WriteLine("PASS method " + typeName + "." + methodName);
+            }
+
+            internal void HaveRequirementsStationCallSequence()
+            {
+                var player = FindTopLevel("Player");
+                var haveRequirementsHandle = player.GetMethods().Single(handle =>
+                {
+                    var method = _reader.GetMethodDefinition(handle);
+                    var signature = method.DecodeSignature(_provider, null);
+                    return _reader.GetString(method.Name) == "HaveRequirements" &&
+                           signature.ReturnType == "System.Boolean" &&
+                           signature.ParameterTypes.SequenceEqual(new[] { "Piece", "RequirementMode" });
+                });
+                var station = FindTopLevel("CraftingStation");
+                var stationMethodHandle = station.GetMethods().Single(handle =>
+                {
+                    var method = _reader.GetMethodDefinition(handle);
+                    var signature = method.DecodeSignature(_provider, null);
+                    return _reader.GetString(method.Name) == "HaveBuildStationInRange" &&
+                           signature.ReturnType == "CraftingStation" &&
+                           signature.ParameterTypes.SequenceEqual(new[] { "System.String", "UnityEngine.Vector3" });
+                });
+                var implicitHandle = _reader.MemberReferences.Single(handle =>
+                {
+                    var member = _reader.GetMemberReference(handle);
+                    if (_reader.GetString(member.Name) != "op_Implicit" || member.Parent.Kind != HandleKind.TypeReference)
+                        return false;
+                    var parent = _reader.GetTypeReference((TypeReferenceHandle)member.Parent);
+                    if (_reader.GetString(parent.Namespace) != "UnityEngine" || _reader.GetString(parent.Name) != "Object")
+                        return false;
+                    var signature = member.DecodeMethodSignature(_provider, null);
+                    return signature.ReturnType == "System.Boolean" &&
+                           signature.ParameterTypes.SequenceEqual(new[] { "UnityEngine.Object" });
+                });
+
+                var firstToken = MetadataTokens.GetToken(stationMethodHandle);
+                var secondToken = MetadataTokens.GetToken(implicitHandle);
+                var pattern = new byte[10];
+                pattern[0] = 0x28;
+                BitConverter.GetBytes(firstToken).CopyTo(pattern, 1);
+                pattern[5] = 0x28;
+                BitConverter.GetBytes(secondToken).CopyTo(pattern, 6);
+
+                var definition = _reader.GetMethodDefinition(haveRequirementsHandle);
+                var il = _pe.GetMethodBody(definition.RelativeVirtualAddress).GetILBytes()
+                    ?? throw new InvalidOperationException("Player.HaveRequirements has no IL body");
+                var matches = 0;
+                for (var index = 0; index <= il.Length - pattern.Length; index++)
+                {
+                    if (il.AsSpan(index, pattern.Length).SequenceEqual(pattern)) matches++;
+                }
+                if (matches != 1)
+                    throw new InvalidOperationException("Player.HaveRequirements station call sequence mismatch: " + matches);
+                _passed++;
+                Console.WriteLine("PASS IL Player.HaveRequirements station call sequence");
             }
 
             internal void Field(string typeName, string fieldName, string fieldType, FieldAttributes required)

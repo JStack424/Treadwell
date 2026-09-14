@@ -1,9 +1,15 @@
-# Verified Valheim movement and terrain contract
+# Verified Valheim road-building, movement, and terrain contract
 
 Inspected reference: Valheim `1.0.12`, Steam build `25253764`.
 
 - `assembly_valheim.dll` SHA-256: `27a766a8d23a7bd8b6a54fb9ad0452a96c305fb3629b39c40527c09a1c393a84`
 - Module MVID: `b8a6fd30-3061-43b3-99f2-11c2e315bc54`
+
+## Paved-road placement
+
+`Player.HaveRequirements(Piece, Player.RequirementMode) -> bool` checks the selected piece's crafting station before DLC, free-build, and material requirements. For `CanBuild`, the verified method contains exactly one consecutive call sequence from `CraftingStation.HaveBuildStationInRange(string, Vector3)` to Unity's object-to-boolean conversion. `Player.UpdatePlacement` uses this result before `TryPlacePiece`; after successful placement it calls the unchanged `ConsumeResources` path.
+
+Treadwell inserts one fail-closed boolean adjustment directly after that unique station-range result. A false result changes to true only when the option is enabled and the request is `CanBuild` for the exact `paved_road` / `$piece_pavedroad` / `$piece_stonecutter` identity with a `TerrainModifier.PaintType.Paved` component. The remaining vanilla method still checks DLC, free-build, and every stone requirement. `IsKnown` and `CanAlmostBuild`, repairs/removals, other pieces, other stations, placement validity, resource consumption, tool stamina/durability, skills, stats, and effects are untouched.
 
 ## Terrain
 
@@ -31,4 +37,4 @@ Treadwell applies one postfix to `SEMan.ModifyRunStaminaDrain` and multiplies th
 
 ## Fail-closed checks
 
-Runtime startup validates the exact versions, SHA-256, MVID, method signatures, field signatures, parameter name used by the postfix, and paint colors before installing either patch. A separate build-time metadata reader checks the same assembly contract without loading game code.
+Runtime startup validates the exact versions, SHA-256, MVID, method signatures, field signatures, parameter name used by the stamina postfix, and paint colors before installing the three patches. The station transpiler additionally refuses to install unless its call sequence occurs exactly once. A separate build-time metadata reader checks the same assembly contract and exact station call sequence without loading game code.

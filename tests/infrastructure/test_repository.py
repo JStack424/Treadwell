@@ -71,13 +71,15 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("_harmony.UnpatchSelf()", module)
         self.assertIn("foreach (var module in _modules.Reverse())", host)
 
-    def test_mvp_scope_and_exact_five_settings(self):
+    def test_feature_scope_and_exact_six_settings(self):
         plugin = (PLUGIN_DIR / "Plugin.cs").read_text()
         module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
         core = (ROOT / "src" / f"{IDENTIFIER}.Core" / "RoadLogic.cs").read_text()
-        self.assertEqual(5, plugin.count("Config.Bind("))
+        placement_policy = (ROOT / "src" / f"{IDENTIFIER}.Core" / "PavedRoadPlacementPolicy.cs").read_text()
+        self.assertEqual(6, plugin.count("Config.Bind("))
         for marker in (
             '"Enable mod", true',
+            '"Paved roads without stonecutter", true',
             '"Dirt sprint speed bonus (%)", 10f',
             '"Dirt sprint stamina reduction (%)", 10f',
             '"Paved sprint speed bonus (%)", 20f',
@@ -85,6 +87,17 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "AcceptableValueRange<float>(0f, 100f)",
         ):
             self.assertIn(marker, plugin)
+        self.assertIn('typeof(Player), "HaveRequirements"', module)
+        self.assertIn("HaveRequirementsTranspiler", module)
+        self.assertIn("AdjustStationSatisfied", module)
+        self.assertIn("PavedRoadPlacementPolicy.ShouldIgnoreStationRange", module)
+        self.assertIn("HaveBuildStationInRangeMethod", module)
+        self.assertIn("UnityObjectImplicitMethod", module)
+        self.assertIn("multiple station-range checks", module)
+        self.assertIn("station-range check is not the verified build", module)
+        self.assertIn("station-range result crosses a control-flow boundary", module)
+        self.assertIn("TerrainModifier.PaintType.Paved", module)
+        self.assertNotIn("m_craftingStation = null", module)
         self.assertIn('typeof(Player), "GetRunSpeedFactor"', module)
         self.assertIn('typeof(SEMan), "ModifyRunStaminaDrain"', module)
         self.assertIn("__result *=", module)
@@ -96,6 +109,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("TerrainSurface.Cultivated", core)
         self.assertIn("TerrainSurface.NonTerrain", core)
         self.assertIn("NaturalGapHoldSeconds = 0.18d", module)
+        for marker in ('"paved_road"', '"$piece_pavedroad"', '"$piece_stonecutter"', "BuildRequirementCheck.CanBuild"):
+            self.assertIn(marker, placement_policy)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
 
     def test_exact_game_contract_is_checked_offline_and_at_runtime(self):
@@ -105,8 +120,9 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
         self.assertIn(f"tests/$identifier.Compatibility.Tests/$identifier.Compatibility.Tests.csproj", build)
         for marker in (
-            "ExpectedSha256", "ExpectedMvid", "GetRunSpeedFactor", "ModifyRunStaminaDrain",
-            "GetPaintMask", "m_character", "m_localPlayer", "m_paintMaskDirt",
+            "ExpectedSha256", "ExpectedMvid", "HaveRequirements", "RequirementMode",
+            "GetRunSpeedFactor", "ModifyRunStaminaDrain", "GetPaintMask", "m_character",
+            "m_localPlayer", "m_craftingStation", "m_paintMaskDirt",
             "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType",
         ):
             self.assertIn(marker, compatibility_test)
