@@ -2,7 +2,7 @@
 
 ## 0.1.1
 
-Local test candidate.
+Release package prepared with the exact DLL bytes supplied for live validation.
 
 - Revalidated unchanged 0.1.1 gameplay and configuration against Valheim 1.0.14, anonymous Steam dedicated-server build 25364309, and Unity 6000.0.75f1.
 - Updated the fail-closed runtime fingerprint, private reference bundle, metadata/IL contracts, documentation, and deterministic test package.

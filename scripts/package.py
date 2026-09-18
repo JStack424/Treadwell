@@ -13,6 +13,7 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+CODE_REVISION_FILE = ROOT / "RELEASE_CODE_REVISION"
 
 
 def git(*args: str) -> str:
@@ -21,6 +22,14 @@ def git(*args: str) -> str:
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def code_revision() -> str:
+    value = CODE_REVISION_FILE.read_text(encoding="utf-8").strip()
+    if re.fullmatch(r"[0-9a-f]{40}", value) is None:
+        raise ValueError("RELEASE_CODE_REVISION must contain one full lowercase commit hash")
+    subprocess.check_call(["git", "cat-file", "-e", f"{value}^{{commit}}"], cwd=ROOT)
+    return value
 
 
 def metadata() -> dict[str, object]:
@@ -68,9 +77,9 @@ def validate_manifest(data: bytes, meta: dict[str, object]) -> None:
         raise ValueError("manifest.json is stale or differs from mod.json")
 
 
-def validate_dll(data: bytes, meta: dict[str, object], head: str) -> None:
+def validate_dll(data: bytes, meta: dict[str, object], revision: str) -> None:
     identifier = str(meta["identifier"])
-    markers = (identifier, str(meta["plugin_guid"]), str(meta["version"]), head)
+    markers = (identifier, str(meta["plugin_guid"]), str(meta["version"]), revision)
     if len(data) < 0x40 or data[:2] != b"MZ" or b"PE\x00\x00" not in data[:1024]:
         raise ValueError(f"{identifier}.dll is not a Windows PE assembly")
     for marker in markers:
@@ -83,7 +92,7 @@ def validate_dll(data: bytes, meta: dict[str, object], head: str) -> None:
             raise ValueError("plugin DLL contains a private/local path marker")
 
 
-def validate_files(files: dict[str, bytes], meta: dict[str, object], head: str) -> None:
+def validate_files(files: dict[str, bytes], meta: dict[str, object], revision: str) -> None:
     expected, _ = expected_paths(meta)
     if tuple(files) != expected:
         raise ValueError(f"unexpected package paths/order: {tuple(files)!r}")
@@ -92,7 +101,7 @@ def validate_files(files: dict[str, bytes], meta: dict[str, object], head: str) 
     validate_manifest(files["manifest.json"], meta)
     validate_png(files["icon.png"])
     identifier = str(meta["identifier"])
-    validate_dll(files[f"plugins/{identifier}/{identifier}.dll"], meta, head)
+    validate_dll(files[f"plugins/{identifier}/{identifier}.dll"], meta, revision)
     for name in files:
         lower = name.lower()
         if lower.endswith((".pdb", ".cs", ".csproj", ".sln", ".lock")):
@@ -147,7 +156,7 @@ def verify_zip(path: Path, meta: dict[str, object], head: str) -> dict[str, byte
         if archive.testzip() is not None:
             raise ValueError("ZIP CRC validation failed")
         files = {info.filename: archive.read(info) for info in infos}
-    validate_files(files, meta, head)
+    validate_files(files, meta, code_revision())
     return files
 
 
@@ -173,7 +182,7 @@ def main() -> int:
         verify_remote_exact(head)
 
     files = load_sources(meta)
-    validate_files(files, meta, head)
+    validate_files(files, meta, code_revision())
     identifier, author, version = (str(meta[key]) for key in ("identifier", "author", "version"))
     suffix = "-test" if args.channel == "test" else ""
     output = args.output or ROOT / "artifacts" / ("test" if args.channel == "test" else "release") / f"{author}-{identifier}-{version}{suffix}.zip"
