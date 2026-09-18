@@ -54,13 +54,36 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         tracked = subprocess.check_output(["git", "ls-files", "*.dll", "*.pdb"], cwd=ROOT, text=True).strip()
         self.assertEqual("", tracked)
 
-    def test_compatibility_gate_is_exact_and_precedes_features(self):
+    def test_contract_gate_precedes_features_and_runtime_identity_is_diagnostic_only(self):
         gate = (PLUGIN_DIR / "CompatibilityGate.cs").read_text()
         plugin = (PLUGIN_DIR / "Plugin.cs").read_text()
-        for marker in ("SupportedValheimMvid", "SupportedValheimSha256", "SupportedGameVersion", "SupportedUnityVersion", "SupportedBepInExVersion", "SupportedHarmonyVersion", "SHA256.Create"):
-            self.assertIn(marker, gate)
+        for forbidden in (
+            "SupportedValheimMvid", "SupportedValheimSha256", "SupportedGameVersion", "SupportedUnityVersion",
+            "SupportedBepInExVersion", "SupportedHarmonyVersion", "SHA256.Create", "File.OpenRead",
+        ):
+            self.assertNotIn(forbidden, gate)
+        for diagnostic in ("RuntimeDiagnostics", "Version.CurrentVersion", "Application.unityVersion", "ModuleVersionId"):
+            self.assertIn(diagnostic, gate)
         self.assertLess(plugin.index("CompatibilityGate.Evaluate"), plugin.index("_features.Start"))
         self.assertIn("before any gameplay hooks were installed", plugin)
+
+    def test_runtime_contract_requires_unique_exact_shapes_and_transactional_rollback(self):
+        gate = (PLUGIN_DIR / "CompatibilityGate.cs").read_text()
+        module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
+        host = (PLUGIN_DIR / "FeatureHost.cs").read_text()
+        for marker in (
+            "matches.Length != 1", "ParametersMatch", "RequireMethod", "RequireMethodNamedReturn",
+            "RequirePatchMethod", "RequireField", "RequireProperty", "RequireGenericMethod", "RequireEnumValue",
+        ):
+            self.assertIn(marker, gate)
+        for patch in (
+            "PlayerSetPlaceModePrefix", "PieceTableUpdateAvailablePrefix", "PlayerHaveRequirementsPrefix",
+            "ZNetSceneOnDestroyPrefix", "GetRunSpeedFactorPostfix", "ModifyRunStaminaDrainPostfix",
+        ):
+            self.assertIn("RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(" + patch + ")", module)
+        self.assertIn("_harmony.UnpatchSelf()", module)
+        self.assertIn("cleanupFailures.Insert(0, installException)", module)
+        self.assertIn("foreach (var module in _modules.Reverse())", host)
 
     def test_feature_modules_own_enable_disable_and_compatibility(self):
         module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
@@ -144,7 +167,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             self.assertIn(diagnostic, module)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
 
-    def test_exact_game_contract_is_checked_offline_and_at_runtime(self):
+    def test_pinned_provenance_is_checked_offline_and_runtime_contract_is_shape_based(self):
         build = (ROOT / "scripts" / "build.sh").read_text()
         compatibility_test = (COMPAT_PROJECT.parent / "Program.cs").read_text()
         gate = (PLUGIN_DIR / "CompatibilityGate.cs").read_text()
@@ -159,8 +182,13 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "m_paintType", "GetComponent", "m_paintMaskDirt", "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType",
         ):
             self.assertIn(marker, compatibility_test)
-        for marker in ("RequireMethod", "RequireField", "RequireColor"):
+        for marker in (
+            "RequireMethod", "RequireMethodNamedReturn", "RequirePatchMethod", "RequireField",
+            "RequireProperty", "RequireGenericMethod", "RequireEnumValue", "RequireColor",
+        ):
             self.assertIn(marker, gate + module)
+        self.assertNotIn("ExpectedSha256", gate)
+        self.assertNotIn("ExpectedMvid", gate)
 
     def test_plugin_identity_and_build_commit_are_generated(self):
         plugin = (PLUGIN_DIR / "Plugin.cs").read_text()

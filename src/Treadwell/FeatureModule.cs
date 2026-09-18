@@ -50,10 +50,20 @@ namespace Treadwell
                 _active = true;
                 Log.LogInfo("Enabled feature module: " + Id);
             }
-            catch
+            catch (Exception installException)
             {
-                _harmony.UnpatchSelf();
-                OnDisabled();
+                _active = false;
+                var cleanupFailures = new List<Exception>();
+                try { _harmony.UnpatchSelf(); }
+                catch (Exception exception) { cleanupFailures.Add(exception); }
+                try { OnDisabled(); }
+                catch (Exception exception) { cleanupFailures.Add(exception); }
+
+                if (cleanupFailures.Count != 0)
+                {
+                    cleanupFailures.Insert(0, installException);
+                    throw new AggregateException("Feature installation failed and rollback was incomplete.", cleanupFailures);
+                }
                 throw;
             }
         }
@@ -177,6 +187,42 @@ namespace Treadwell
                 BindingFlags.Static | BindingFlags.Public);
             CompatibilityGate.RequireField(failures, typeof(Heightmap), "m_paintMaskPaved", typeof(Color),
                 BindingFlags.Static | BindingFlags.Public);
+
+            // Validate Harmony patch methods as exact pairs with the targets above before any patch is installed.
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerSetPlaceModePrefix),
+                new[] { typeof(PieceTable) });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PieceTableUpdateAvailablePrefix),
+                new[] { typeof(PieceTable) });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerHaveRequirementsPrefix),
+                new[] { typeof(Piece) });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(ZNetSceneOnDestroyPrefix),
+                Type.EmptyTypes);
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(GetRunSpeedFactorPostfix),
+                new[] { typeof(Player), typeof(float).MakeByRefType() });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(ModifyRunStaminaDrainPostfix),
+                new[] { typeof(Character), typeof(float).MakeByRefType() });
+
+            // These Unity contracts are used directly by road discovery and terrain sampling.
+            CompatibilityGate.RequireGenericMethod(failures, typeof(GameObject), "GetComponent",
+                BindingFlags.Instance | BindingFlags.Public, Type.EmptyTypes, returnsArray: false);
+            CompatibilityGate.RequireGenericMethod(failures, typeof(GameObject), "GetComponentsInChildren",
+                BindingFlags.Instance | BindingFlags.Public, new[] { typeof(bool) }, returnsArray: true);
+            CompatibilityGate.RequireGenericMethod(failures, typeof(Component), "GetComponent",
+                BindingFlags.Instance | BindingFlags.Public, Type.EmptyTypes, returnsArray: false);
+            CompatibilityGate.RequireGenericMethod(failures, typeof(Component), "GetComponentInParent",
+                BindingFlags.Instance | BindingFlags.Public, Type.EmptyTypes, returnsArray: false);
+            CompatibilityGate.RequireProperty(failures, typeof(Component), "gameObject", typeof(GameObject),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireProperty(failures, typeof(Component), "transform", typeof(Transform),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireProperty(failures, typeof(Transform), "position", typeof(Vector3),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: true);
+            CompatibilityGate.RequireProperty(failures, typeof(Time), "unscaledTime", typeof(float),
+                BindingFlags.Static | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireEnumValue(failures, typeof(TerrainModifier.PaintType), "Dirt", 0);
+            CompatibilityGate.RequireEnumValue(failures, typeof(TerrainModifier.PaintType), "Cultivate", 1);
+            CompatibilityGate.RequireEnumValue(failures, typeof(TerrainModifier.PaintType), "Paved", 2);
+
             CompatibilityGate.RequireColor(failures, "dirt paint", Heightmap.m_paintMaskDirt, 1f, 0f, 0f, 1f);
             CompatibilityGate.RequireColor(failures, "cultivated paint", Heightmap.m_paintMaskCultivated, 0f, 1f, 0f, 1f);
             CompatibilityGate.RequireColor(failures, "paved paint", Heightmap.m_paintMaskPaved, 0f, 0f, 1f, 1f);

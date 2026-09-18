@@ -50,16 +50,13 @@ If an earlier test build created the configuration file, BepInEx may preserve it
 
 ## Compatibility and safety
 
-Treadwell 0.1.1 supports exactly:
+Treadwell 0.1.2 uses a contract-based compatibility gate. Valheim's displayed version, Unity version, and loaded `assembly_valheim` MVID are logged as diagnostics, but they are not exact-version blockers. Client and dedicated-server assemblies, and compatible Valheim 1.0 patch releases, may differ in build identity while exposing the same APIs Treadwell needs.
 
-- Valheim `1.0.14` / Steam build `25364309`
-- Unity `6000.0.75f1`
-- BepInEx `5.4.23.5` (distributed by BepInExPack for Valheim `5.4.2350`)
-- Harmony `2.9.0.0`
+Before installing anything, Treadwell verifies every Valheim method and overload it patches or calls, the matching Harmony prefix/postfix shapes, every accessed game field, the Unity component/property methods used for road discovery, and the expected piece-table, resource, enum, and terrain-paint contracts. Each required member must resolve to exactly one compatible signature. Missing or ambiguous members fail closed. Patch installation is transactional: if any Harmony patch fails, Treadwell removes every patch it installed, restores any owned Paved Road station override, and disables all features.
 
-At startup, Treadwell verifies the game assembly hash and MVID, every patched method, every accessed field, and the expected piece-table, resource, and terrain-paint contracts before installing gameplay hooks. The pinned IL also verifies that `PieceTable.UpdateAvailable` reads each table entry's root `Piece`; discovery additionally searches children for the terrain operation. Treadwell applies the uniquely selected semantic Paved Road mutation when Valheim enters place mode, before piece-table availability refreshes, and re-discovers it immediately before vanilla requirement checks. Its `Piece.m_craftingStation` reference is set to `null` without depending on guessed piece, localization, or station identifiers. Valheim's normal recipe-knowledge and resource checks still decide whether the piece is unlocked and affordable. Disable, configuration changes, scene unload, and plugin unload restore the captured original reference. DLC, free-build, stone-count, placement, consumption, stamina, durability, skill, and effect handling remain vanilla. If the runtime contract does not match the pinned build, Treadwell disables itself instead of guessing.
+The build remains compiled and independently checked against the pinned Valheim `1.0.14` / Steam build `25364309` reference bundle. Its hashes and MVID document and protect build provenance only; they are deliberately not compared with the player's runtime assembly. The pinned IL verifies that `PieceTable.UpdateAvailable` reads each table entry's root `Piece`; discovery additionally searches children for the terrain operation. Treadwell applies the uniquely selected semantic Paved Road mutation when Valheim enters place mode, before piece-table availability refreshes, and re-discovers it immediately before vanilla requirement checks. Its `Piece.m_craftingStation` reference is set to `null` without depending on guessed piece, localization, or station identifiers. Valheim's normal recipe-knowledge and resource checks still decide whether the piece is unlocked and affordable. Disable, configuration changes, scene unload, and plugin unload restore the captured original reference. DLC, free-build, stone-count, placement, consumption, stamina, durability, skill, and effect handling remain vanilla.
 
-The core road bonuses have been live-tested in Valheim. The recipe-level stonecutter removal and multiplayer behavior still require live validation, and future Valheim versions are not assumed compatible until a new build is checked.
+The core road bonuses have been live-tested in Valheim. The recipe-level stonecutter removal and multiplayer behavior still require live validation.
 
 ## Development
 
@@ -70,7 +67,7 @@ Private Valheim and BepInEx assemblies remain untracked and are never packaged.
 ./scripts/test-package.sh
 ```
 
-The build performs locked restore, warning-as-error Release compilation, pure behavior tests, an independent assembly-contract test against the pinned game assembly, reference fingerprint checks, repository checks, and an exact five-file package audit.
+The build performs locked restore, warning-as-error Release compilation, pure behavior tests, an independent assembly-contract test against the pinned provenance assembly, reference fingerprint checks, runtime contract-gate checks, repository checks, and an exact five-file package audit.
 
 ## Source, issues, and license
 

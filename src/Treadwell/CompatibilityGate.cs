@@ -1,10 +1,8 @@
 #nullable disable
 using System;
 using System.Collections.Generic;
-using System.IO;
+using System.Linq;
 using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
 using BepInEx;
 using HarmonyLib;
 using UnityEngine;
@@ -24,41 +22,15 @@ namespace Treadwell
 
     internal static class CompatibilityGate
     {
-        // Exact runtime supplied by the verified Valheim 1.0.14 / Steam build 25364309 reference bundle.
-        private static readonly Guid SupportedValheimMvid = new Guid("a63433e8-968e-407a-918a-9f9fe7e7ba9a");
-        private const string SupportedValheimSha256 = "e5af0669755ed3b098f71b4dd0753f8a997761b99bca1e8dac3d5ca4c706a0be";
-        private const string SupportedGameVersion = "1.0.14";
-        private const string SupportedUnityVersion = "6000.0.75f1";
-        private const string SupportedBepInExVersion = "5.4.23.5";
-        private const string SupportedHarmonyVersion = "2.9.0.0";
-
         internal static CompatibilityResult Evaluate(FeatureHost features)
         {
             var failures = new List<string>();
-            RequireEqual(failures, "Valheim API", global::Version.CurrentVersion.ToString(), SupportedGameVersion);
-            RequireEqual(failures, "Unity", Application.unityVersion, SupportedUnityVersion);
-            RequireAssemblyVersion(failures, typeof(BaseUnityPlugin).Assembly, SupportedBepInExVersion, "BepInEx");
-            RequireAssemblyVersion(failures, typeof(Harmony).Assembly, SupportedHarmonyVersion, "Harmony");
-
-            var valheimAssembly = typeof(Player).Assembly;
-            if (valheimAssembly.ManifestModule.ModuleVersionId != SupportedValheimMvid)
-                failures.Add("assembly_valheim MVID is not the verified build");
-            try
-            {
-                if (!string.Equals(Sha256(valheimAssembly.Location), SupportedValheimSha256, StringComparison.Ordinal))
-                    failures.Add("assembly_valheim SHA-256 is not the verified build");
-            }
-            catch (Exception exception)
-            {
-                failures.Add("assembly_valheim SHA-256 could not be verified: " + exception.GetType().Name);
-            }
-
             try { features.ValidateCompatibility(failures); }
             catch (Exception exception) { failures.Add("feature compatibility validation threw: " + exception.GetType().Name); }
 
             return failures.Count == 0
-                ? new CompatibilityResult(true, "verified runtime surface")
-                : new CompatibilityResult(false, string.Join("; ", failures));
+                ? new CompatibilityResult(true, "runtime contract verified (" + RuntimeDiagnostics() + ")")
+                : new CompatibilityResult(false, string.Join("; ", failures) + " (" + RuntimeDiagnostics() + ")");
         }
 
         internal static void RequireMethod(
@@ -70,9 +42,24 @@ namespace Treadwell
             Type[] parameterTypes,
             Func<MethodInfo, bool> additionalCheck = null)
         {
-            var method = declaringType.GetMethod(name, flags, null, parameterTypes, null);
-            if (method == null || method.ReturnType != returnType || (additionalCheck != null && !additionalCheck(method)))
-                failures.Add(declaringType.Name + "." + name + " signature is not the verified build");
+            MethodInfo[] matches;
+            try
+            {
+                matches = declaringType.GetMethods(flags)
+                    .Where(method => string.Equals(method.Name, name, StringComparison.Ordinal))
+                    .Where(method => method.ReturnType == returnType)
+                    .Where(method => ParametersMatch(method.GetParameters(), parameterTypes))
+                    .Where(method => additionalCheck == null || additionalCheck(method))
+                    .ToArray();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(declaringType.Name + "." + name + " contract inspection threw: " + exception.GetType().Name);
+                return;
+            }
+
+            if (matches.Length != 1)
+                failures.Add(declaringType.Name + "." + name + " requires one exact runtime signature; found " + matches.Length);
         }
 
         internal static void RequireMethodNamedReturn(
@@ -83,9 +70,34 @@ namespace Treadwell
             BindingFlags flags,
             Type[] parameterTypes)
         {
-            var method = declaringType.GetMethod(name, flags, null, parameterTypes, null);
-            if (method == null || !string.Equals(method.ReturnType.FullName, returnTypeFullName, StringComparison.Ordinal))
-                failures.Add(declaringType.Name + "." + name + " signature is not the verified build");
+            MethodInfo[] matches;
+            try
+            {
+                matches = declaringType.GetMethods(flags)
+                    .Where(method => string.Equals(method.Name, name, StringComparison.Ordinal))
+                    .Where(method => string.Equals(method.ReturnType.FullName, returnTypeFullName, StringComparison.Ordinal))
+                    .Where(method => ParametersMatch(method.GetParameters(), parameterTypes))
+                    .ToArray();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(declaringType.Name + "." + name + " contract inspection threw: " + exception.GetType().Name);
+                return;
+            }
+
+            if (matches.Length != 1)
+                failures.Add(declaringType.Name + "." + name + " requires one exact runtime signature; found " + matches.Length);
+        }
+
+        internal static void RequirePatchMethod(
+            ICollection<string> failures,
+            Type declaringType,
+            string name,
+            Type[] parameterTypes)
+        {
+            RequireMethod(failures, declaringType, name, typeof(void),
+                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                parameterTypes, method => method.IsStatic);
         }
 
         internal static void RequireField(
@@ -95,9 +107,95 @@ namespace Treadwell
             Type fieldType,
             BindingFlags flags)
         {
-            var field = declaringType.GetField(name, flags | BindingFlags.DeclaredOnly);
-            if (field == null || field.FieldType != fieldType)
-                failures.Add(declaringType.Name + "." + name + " field is not the verified build");
+            FieldInfo[] matches;
+            try
+            {
+                matches = declaringType.GetFields(flags | BindingFlags.DeclaredOnly)
+                    .Where(field => string.Equals(field.Name, name, StringComparison.Ordinal) && field.FieldType == fieldType)
+                    .ToArray();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(declaringType.Name + "." + name + " field inspection threw: " + exception.GetType().Name);
+                return;
+            }
+
+            if (matches.Length != 1)
+                failures.Add(declaringType.Name + "." + name + " requires one exact runtime field; found " + matches.Length);
+        }
+
+        internal static void RequireProperty(
+            ICollection<string> failures,
+            Type declaringType,
+            string name,
+            Type propertyType,
+            BindingFlags flags,
+            bool requireGetter,
+            bool requireSetter)
+        {
+            PropertyInfo[] matches;
+            try
+            {
+                matches = declaringType.GetProperties(flags)
+                    .Where(property => string.Equals(property.Name, name, StringComparison.Ordinal))
+                    .Where(property => property.PropertyType == propertyType && property.GetIndexParameters().Length == 0)
+                    .Where(property => !requireGetter || property.GetGetMethod(true) != null)
+                    .Where(property => !requireSetter || property.GetSetMethod(true) != null)
+                    .ToArray();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(declaringType.Name + "." + name + " property inspection threw: " + exception.GetType().Name);
+                return;
+            }
+
+            if (matches.Length != 1)
+                failures.Add(declaringType.Name + "." + name + " requires one exact runtime property; found " + matches.Length);
+        }
+
+        internal static void RequireGenericMethod(
+            ICollection<string> failures,
+            Type declaringType,
+            string name,
+            BindingFlags flags,
+            Type[] parameterTypes,
+            bool returnsArray)
+        {
+            MethodInfo[] matches;
+            try
+            {
+                matches = declaringType.GetMethods(flags)
+                    .Where(method => string.Equals(method.Name, name, StringComparison.Ordinal))
+                    .Where(method => method.IsGenericMethodDefinition && method.GetGenericArguments().Length == 1)
+                    .Where(method => ParametersMatch(method.GetParameters(), parameterTypes))
+                    .Where(method => GenericReturnMatches(method.ReturnType, returnsArray))
+                    .ToArray();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(declaringType.Name + "." + name + " generic contract inspection threw: " + exception.GetType().Name);
+                return;
+            }
+
+            if (matches.Length != 1)
+                failures.Add(declaringType.Name + "." + name + " requires one exact generic runtime signature; found " + matches.Length);
+        }
+
+        internal static void RequireEnumValue(
+            ICollection<string> failures,
+            Type enumType,
+            string name,
+            int expectedValue)
+        {
+            try
+            {
+                if (!enumType.IsEnum || !Enum.IsDefined(enumType, name) || Convert.ToInt32(Enum.Parse(enumType, name)) != expectedValue)
+                    failures.Add(enumType.Name + "." + name + " enum value is incompatible");
+            }
+            catch (Exception exception)
+            {
+                failures.Add(enumType.Name + "." + name + " enum inspection threw: " + exception.GetType().Name);
+            }
         }
 
         internal static void RequireColor(
@@ -112,28 +210,37 @@ namespace Treadwell
             const float epsilon = 0.0001f;
             if (Math.Abs(observed.r - red) > epsilon || Math.Abs(observed.g - green) > epsilon ||
                 Math.Abs(observed.b - blue) > epsilon || Math.Abs(observed.a - alpha) > epsilon)
-                failures.Add(label + " encoding is not the verified build");
+                failures.Add(label + " encoding is incompatible");
         }
 
-        private static void RequireEqual(ICollection<string> failures, string label, string observed, string expected)
+        private static bool ParametersMatch(ParameterInfo[] observed, Type[] expected)
         {
-            if (!string.Equals(observed, expected, StringComparison.Ordinal))
-                failures.Add(label + " version " + observed + " != " + expected);
-        }
-
-        private static void RequireAssemblyVersion(ICollection<string> failures, Assembly assembly, string expected, string label)
-            => RequireEqual(failures, label, assembly.GetName().Version?.ToString() ?? "unknown", expected);
-
-        private static string Sha256(string path)
-        {
-            using (var stream = File.OpenRead(path))
-            using (var algorithm = SHA256.Create())
+            if (observed.Length != expected.Length) return false;
+            for (var index = 0; index < observed.Length; index++)
             {
-                var hash = algorithm.ComputeHash(stream);
-                var text = new StringBuilder(hash.Length * 2);
-                foreach (var value in hash) text.Append(value.ToString("x2"));
-                return text.ToString();
+                if (observed[index].ParameterType != expected[index]) return false;
             }
+            return true;
+        }
+
+        private static bool GenericReturnMatches(Type returnType, bool returnsArray)
+        {
+            if (!returnsArray)
+                return returnType.IsGenericParameter && returnType.GenericParameterPosition == 0;
+            var elementType = returnType.GetElementType();
+            return returnType.IsArray && elementType != null && elementType.IsGenericParameter &&
+                   elementType.GenericParameterPosition == 0;
+        }
+
+        private static string RuntimeDiagnostics()
+        {
+            var gameVersion = global::Version.CurrentVersion != null ? global::Version.CurrentVersion.ToString() : "unknown";
+            var unityVersion = Application.unityVersion ?? "unknown";
+            var bepinexVersion = typeof(BaseUnityPlugin).Assembly.GetName().Version?.ToString() ?? "unknown";
+            var harmonyVersion = typeof(Harmony).Assembly.GetName().Version?.ToString() ?? "unknown";
+            var valheimMvid = typeof(Player).Assembly.ManifestModule.ModuleVersionId;
+            return "game " + gameVersion + ", Unity " + unityVersion + ", BepInEx " + bepinexVersion +
+                   ", Harmony " + harmonyVersion + ", assembly MVID " + valheimMvid;
         }
     }
 }

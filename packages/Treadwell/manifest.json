@@ -1,6 +1,6 @@
 {
   "name": "Treadwell",
-  "version_number": "0.1.1",
+  "version_number": "0.1.2",
   "website_url": "https://github.com/JStack424/Treadwell",
   "description": "Make Valheim's roads worth building and using with configurable paved-road placement and sprint bonuses.",
   "dependencies": [
