@@ -234,13 +234,20 @@ namespace Treadwell
 
         private static string RuntimeDiagnostics()
         {
-            var gameVersion = global::Version.CurrentVersion != null ? global::Version.CurrentVersion.ToString() : "unknown";
-            var unityVersion = Application.unityVersion ?? "unknown";
-            var bepinexVersion = typeof(BaseUnityPlugin).Assembly.GetName().Version?.ToString() ?? "unknown";
-            var harmonyVersion = typeof(Harmony).Assembly.GetName().Version?.ToString() ?? "unknown";
-            var valheimMvid = typeof(Player).Assembly.ManifestModule.ModuleVersionId;
-            return "game " + gameVersion + ", Unity " + unityVersion + ", BepInEx " + bepinexVersion +
-                   ", Harmony " + harmonyVersion + ", assembly MVID " + valheimMvid;
+            try
+            {
+                var gameVersion = global::Version.CurrentVersion != null ? global::Version.CurrentVersion.ToString() : "unknown";
+                var unityVersion = Application.unityVersion ?? "unknown";
+                var bepinexVersion = typeof(BaseUnityPlugin).Assembly.GetName().Version?.ToString() ?? "unknown";
+                var harmonyVersion = typeof(Harmony).Assembly.GetName().Version?.ToString() ?? "unknown";
+                var valheimMvid = typeof(Player).Assembly.ManifestModule.ModuleVersionId;
+                return "game " + gameVersion + ", Unity " + unityVersion + ", BepInEx " + bepinexVersion +
+                       ", Harmony " + harmonyVersion + ", assembly MVID " + valheimMvid;
+            }
+            catch (Exception exception)
+            {
+                return "runtime diagnostics unavailable: " + exception.GetType().Name;
+            }
         }
     }
 }
