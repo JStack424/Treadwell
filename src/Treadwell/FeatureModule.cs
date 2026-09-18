@@ -24,6 +24,7 @@ namespace Treadwell
     {
         private readonly Harmony _harmony;
         private bool _active;
+        private bool _cleanupPending;
 
         protected FeatureModuleBase(string id, ConfigEntry<bool> enabled, ManualLogSource log)
         {
@@ -44,24 +45,48 @@ namespace Treadwell
         public void Enable()
         {
             if (_active) return;
-            TransactionalInstall.Run(
-                InstallPatches,
-                () => _harmony.UnpatchSelf(),
-                OnDisabled);
-            _active = true;
-            Log.LogInfo("Enabled feature module: " + Id);
+            if (_cleanupPending) Disable();
+
+            _cleanupPending = true;
+            try
+            {
+                TransactionalInstall.Run(
+                    InstallPatches,
+                    () => _harmony.UnpatchSelf(),
+                    OnDisabled);
+                _active = true;
+                _cleanupPending = false;
+                Log.LogInfo("Enabled feature module: " + Id);
+            }
+            catch
+            {
+                _active = false;
+                // TransactionalInstall already attempted every cleanup action. Keep this
+                // conservative marker until FeatureHost.Stop verifies cleanup end-to-end.
+                throw;
+            }
         }
 
         public void Disable()
         {
-            if (!_active) return;
+            if (!_active && !_cleanupPending) return;
+
+            var failures = new List<Exception>();
             try { _harmony.UnpatchSelf(); }
-            finally
+            catch (Exception exception) { failures.Add(exception); }
+
+            try { OnDisabled(); }
+            catch (Exception exception) { failures.Add(exception); }
+
+            _active = false;
+            if (failures.Count > 0)
             {
-                _active = false;
-                OnDisabled();
-                Log.LogInfo("Disabled feature module: " + Id);
+                _cleanupPending = true;
+                throw new AggregateException("Feature cleanup failed for " + Id + ".", failures);
             }
+
+            _cleanupPending = false;
+            Log.LogInfo("Disabled feature module: " + Id);
         }
 
         protected abstract void InstallPatches();

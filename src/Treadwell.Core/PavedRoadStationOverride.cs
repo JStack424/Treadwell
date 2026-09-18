@@ -154,16 +154,10 @@ namespace Treadwell.Core
 
             _piece = piece;
             _originalStation = station;
-            try
-            {
-                _setStation(piece, null);
-                return StationOverrideApplyResult.Removed;
-            }
-            catch
-            {
-                Forget();
-                throw;
-            }
+            // Preserve the captured state if the setter throws: it may have mutated
+            // the piece before failing, so later cleanup must still be able to restore it.
+            _setStation(piece, null);
+            return StationOverrideApplyResult.Removed;
         }
 
         public StationOverrideRestoreResult Restore()
@@ -189,17 +183,11 @@ namespace Treadwell.Core
                 return StationOverrideRestoreResult.Conflict;
             }
 
-            try
-            {
-                _setStation(piece, originalStation);
-                Forget();
-                return StationOverrideRestoreResult.Restored;
-            }
-            catch
-            {
-                Forget();
-                throw;
-            }
+            // Clear ownership only after the setter returns successfully. If it throws,
+            // retain the exact captured state so cleanup can be retried safely.
+            _setStation(piece, originalStation);
+            Forget();
+            return StationOverrideRestoreResult.Restored;
         }
 
         public void Forget()

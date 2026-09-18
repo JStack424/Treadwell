@@ -53,8 +53,9 @@ namespace Treadwell
             }
             catch (Exception exception)
             {
-                _features.Dispose();
-                _features = null;
+                // Keep the stopped host available so OnDisable/OnDestroy can retry any
+                // cleanup that could not complete during transactional installation.
+                _features.Stop();
                 Logger.LogError(PluginName + " disabled because feature installation failed: " + exception);
             }
         }

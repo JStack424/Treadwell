@@ -72,6 +72,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         gate = (PLUGIN_DIR / "CompatibilityGate.cs").read_text()
         module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
         host = (PLUGIN_DIR / "FeatureHost.cs").read_text()
+        plugin = (PLUGIN_DIR / "Plugin.cs").read_text()
         runtime_safety = (ROOT / "src" / f"{IDENTIFIER}.Core" / "RuntimeSafety.cs").read_text()
         core_tests = (ROOT / "tests" / f"{IDENTIFIER}.Tests" / "Program.cs").read_text()
         for marker in (
@@ -97,6 +98,10 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("failed install executes every rollback step", core_tests)
         self.assertIn("runtime method shape mismatch is rejected", core_tests)
         self.assertIn("ambiguous runtime field contract is rejected", core_tests)
+        self.assertIn("restore failure retains captured state until a successful retry", core_tests)
+        self.assertIn("_cleanupPending", module)
+        self.assertIn("if (!_active && !_cleanupPending) return", module)
+        self.assertIn("OnDisable/OnDestroy can retry", plugin)
         self.assertIn("foreach (var module in _modules.Reverse())", host)
 
     def test_feature_modules_own_enable_disable_and_compatibility(self):

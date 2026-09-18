@@ -15,7 +15,7 @@ namespace Treadwell.Tests
             HysteresisTests();
             PavedRoadPlacementTests();
             RuntimeSafetyTests();
-            Console.WriteLine(_passed + "/61 core tests passed");
+            Console.WriteLine(_passed + "/63 core tests passed");
             return 0;
         }
 
@@ -270,6 +270,70 @@ namespace Treadwell.Tests
                 piece.Station = station;
                 Equal(StationOverrideRestoreResult.AlreadyRestored, stationOverride.Restore());
                 Equal(station, piece.Station!);
+                Equal(false, stationOverride.IsApplied);
+            });
+            Run("apply failure retains captured state for cleanup retry", () =>
+            {
+                var station = ExactStation();
+                var piece = new FakePiece(station);
+                var firstWrite = true;
+                var stationOverride = new PavedRoadStationOverride<FakePiece, FakeStation>(
+                    candidate => candidate.Station,
+                    (candidate, value) =>
+                    {
+                        candidate.Station = value;
+                        if (firstWrite)
+                        {
+                            firstWrite = false;
+                            throw new InvalidOperationException("setter failed after mutation");
+                        }
+                    });
+
+                try
+                {
+                    stationOverride.Apply(piece);
+                    throw new InvalidOperationException("Expected setter failure.");
+                }
+                catch (InvalidOperationException exception) when (exception.Message == "setter failed after mutation")
+                {
+                }
+
+                Equal(true, stationOverride.IsAppliedTo(piece));
+                Equal(true, piece.Station == null);
+                Equal(StationOverrideRestoreResult.Restored, stationOverride.Restore());
+                Equal(station, piece.Station!);
+                Equal(false, stationOverride.IsApplied);
+            });
+            Run("restore failure retains captured state until a successful retry", () =>
+            {
+                var station = ExactStation();
+                var piece = new FakePiece(station);
+                var failRestore = true;
+                var stationOverride = new PavedRoadStationOverride<FakePiece, FakeStation>(
+                    candidate => candidate.Station,
+                    (candidate, value) =>
+                    {
+                        candidate.Station = value;
+                        if (value != null && failRestore)
+                        {
+                            failRestore = false;
+                            throw new InvalidOperationException("restore failed after mutation");
+                        }
+                    });
+
+                stationOverride.Apply(piece);
+                try
+                {
+                    stationOverride.Restore();
+                    throw new InvalidOperationException("Expected restore failure.");
+                }
+                catch (InvalidOperationException exception) when (exception.Message == "restore failed after mutation")
+                {
+                }
+
+                Equal(true, stationOverride.IsAppliedTo(piece));
+                Equal(station, piece.Station!);
+                Equal(StationOverrideRestoreResult.AlreadyRestored, stationOverride.Restore());
                 Equal(false, stationOverride.IsApplied);
             });
             Run("null piece is rejected without mutation", () =>
