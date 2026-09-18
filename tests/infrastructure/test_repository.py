@@ -153,7 +153,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         for marker in (
             "ExpectedSha256", "ExpectedMvid", "PieceTable", "UpdateAvailable", "ZNetScene", "OnDestroy",
             "SetPlaceMode", "GetBuildTool", "UpdateAvailablePiecesList", "HaveRequirements", "UpdatePlacement",
-            "GetRunSpeedFactor", "ModifyRunStaminaDrain", "GetPaintMask", "m_character",
+            "UpdateWalking", "CheckRun", "GetRunSpeedFactor", "ModifyRunStaminaDrain", "UseStamina",
+            "CurrentGameVersion", "GetPaintMask", "m_character",
             "m_localPlayer", "m_pieces", "m_craftingStation", "m_resources", "m_resItem", "m_amount",
             "m_paintType", "GetComponent", "m_paintMaskDirt", "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType",
         ):

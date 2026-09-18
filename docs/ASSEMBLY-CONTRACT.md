@@ -1,9 +1,9 @@
 # Verified Valheim road-building, movement, and terrain contract
 
-Inspected reference: Valheim `1.0.12`, Steam build `25253764`.
+Inspected reference: Valheim `1.0.14`, Steam build `25364309`.
 
-- `assembly_valheim.dll` SHA-256: `27a766a8d23a7bd8b6a54fb9ad0452a96c305fb3629b39c40527c09a1c393a84`
-- Module MVID: `b8a6fd30-3061-43b3-99f2-11c2e315bc54`
+- `assembly_valheim.dll` SHA-256: `e5af0669755ed3b098f71b4dd0753f8a997761b99bca1e8dac3d5ca4c706a0be`
+- Module MVID: `a63433e8-968e-407a-918a-9f9fe7e7ba9a`
 
 ## Paved-road recipe
 

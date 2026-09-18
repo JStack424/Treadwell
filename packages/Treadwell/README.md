@@ -38,7 +38,7 @@ If you used an earlier test build, BepInEx may retain its older values. Delete `
 
 ## Compatibility and safety
 
-Treadwell 0.1.1 supports exactly **Valheim 1.0.12 / Steam build 25253764**. It validates the pinned runtime, piece-table and movement hooks, terrain APIs, and field contracts before installing its Harmony patches. The paved-road change runs as Valheim enters place mode, before availability refresh, and re-discovers the active-table candidate immediately before vanilla requirement checks. It sets only the uniquely selected semantic Paved Road recipe's crafting-station reference to `null`, locally and reversibly; all resource and placement handling remains vanilla. An unverified game update or changed contract disables Treadwell instead of guessing.
+Treadwell 0.1.1 supports exactly **Valheim 1.0.14 / Steam build 25364309**. It validates the pinned runtime, piece-table and movement hooks, terrain APIs, and field contracts before installing its Harmony patches. The paved-road change runs as Valheim enters place mode, before availability refresh, and re-discovers the active-table candidate immediately before vanilla requirement checks. It sets only the uniquely selected semantic Paved Road recipe's crafting-station reference to `null`, locally and reversibly; all resource and placement handling remains vanilla. An unverified game update or changed contract disables Treadwell instead of guessing.
 
 The core road bonuses have been live-tested in Valheim. The recipe-level stonecutter removal and multiplayer behavior still require live validation, and future game versions are not assumed compatible.
 

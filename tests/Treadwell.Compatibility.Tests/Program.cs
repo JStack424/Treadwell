@@ -13,8 +13,8 @@ namespace Treadwell.Compatibility.Tests
 {
     internal static class Program
     {
-        private const string ExpectedSha256 = "27a766a8d23a7bd8b6a54fb9ad0452a96c305fb3629b39c40527c09a1c393a84";
-        private static readonly Guid ExpectedMvid = new Guid("b8a6fd30-3061-43b3-99f2-11c2e315bc54");
+        private const string ExpectedSha256 = "e5af0669755ed3b098f71b4dd0753f8a997761b99bca1e8dac3d5ca4c706a0be";
+        private static readonly Guid ExpectedMvid = new Guid("a63433e8-968e-407a-918a-9f9fe7e7ba9a");
         private static int _passed;
 
         private static int Main(string[] args)
@@ -37,6 +37,9 @@ namespace Treadwell.Compatibility.Tests
             contract.Method("Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
             contract.Method("Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" }, MethodAttributes.Public);
             contract.Method("Player", "UpdatePlacement", "System.Void", new[] { "System.Boolean", "System.Single" }, MethodAttributes.Private);
+            contract.Method("Character", "UpdateWalking", "System.Void", new[] { "System.Single" }, MethodAttributes.Private);
+            contract.Method("Player", "CheckRun", "System.Boolean", new[] { "UnityEngine.Vector3", "System.Single" },
+                MethodAttributes.Family | MethodAttributes.Virtual);
             contract.Method("Player", "GetRunSpeedFactor", "System.Single", Array.Empty<string>(),
                 MethodAttributes.Family | MethodAttributes.Virtual);
             contract.Method("SEMan", "ModifyRunStaminaDrain", "System.Void",
@@ -79,6 +82,17 @@ namespace Treadwell.Compatibility.Tests
                 "Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>(),
                 "PieceTable", "UpdateAvailable", "System.Void",
                 new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" });
+            contract.MethodCalls(
+                "Character", "UpdateWalking", "System.Void", new[] { "System.Single" },
+                "Character", "GetRunSpeedFactor", "System.Single", Array.Empty<string>());
+            contract.MethodCalls(
+                "Player", "CheckRun", "System.Boolean", new[] { "UnityEngine.Vector3", "System.Single" },
+                "SEMan", "ModifyRunStaminaDrain", "System.Void",
+                new[] { "System.Single", "System.Single&", "UnityEngine.Vector3", "System.Boolean" });
+            contract.MethodCalls(
+                "Player", "CheckRun", "System.Boolean", new[] { "UnityEngine.Vector3", "System.Single" },
+                "Character", "UseStamina", "System.Void", new[] { "System.Single" });
+            contract.CurrentGameVersion(1, 0, 14);
 
             contract.EnumValues("TerrainModifier", "PaintType", new Dictionary<string, int>
             {
@@ -86,7 +100,7 @@ namespace Treadwell.Compatibility.Tests
                 ["Cultivate"] = 1,
                 ["Paved"] = 2
             });
-            Console.WriteLine(_passed + "/35 compatibility contract checks passed");
+            Console.WriteLine(_passed + "/41 compatibility contract checks passed");
             return 0;
         }
 
@@ -398,6 +412,47 @@ namespace Treadwell.Compatibility.Tests
                     var field = _reader.GetFieldDefinition(handle);
                     return _reader.GetString(field.Name) == fieldName && field.DecodeSignature(_provider, null) == fieldType;
                 });
+            }
+
+            internal void CurrentGameVersion(int major, int minor, int patch)
+            {
+                if (major < 0 || major > 8 || minor < 0 || minor > 8 || patch < sbyte.MinValue || patch > sbyte.MaxValue)
+                    throw new ArgumentOutOfRangeException(nameof(patch), "Version contract helper requires compact integer opcodes.");
+
+                var initializer = FindMethodHandle("Version", ".cctor", "System.Void", Array.Empty<string>());
+                var constructor = FindMethodHandle("GameVersion", ".ctor", "System.Void",
+                    new[] { "System.Int32", "System.Int32", "System.Int32" });
+                var currentVersion = FindFieldHandle("Version", "<CurrentVersion>k__BackingField", "GameVersion");
+                var il = MethodIl(initializer);
+                var pattern = new List<byte>();
+                AppendCompactInteger(pattern, major);
+                AppendCompactInteger(pattern, minor);
+                AppendCompactInteger(pattern, patch);
+                pattern.Add(0x73); // newobj
+                pattern.AddRange(BitConverter.GetBytes(MetadataTokens.GetToken(constructor)));
+                pattern.Add(0x80); // stsfld
+                pattern.AddRange(BitConverter.GetBytes(MetadataTokens.GetToken(currentVersion)));
+
+                var matches = 0;
+                for (var index = 0; index <= il.Length - pattern.Count; index++)
+                {
+                    if (il.AsSpan(index, pattern.Count).SequenceEqual(pattern.ToArray())) matches++;
+                }
+                if (matches != 1)
+                    throw new InvalidOperationException("Version.CurrentVersion initializer mismatch: " + matches);
+                _passed++;
+                Console.WriteLine("PASS IL Version.CurrentVersion = " + major + "." + minor + "." + patch);
+            }
+
+            private static void AppendCompactInteger(ICollection<byte> output, int value)
+            {
+                if (value >= 0 && value <= 8)
+                {
+                    output.Add((byte)(0x16 + value)); // ldc.i4.0 through ldc.i4.8
+                    return;
+                }
+                output.Add(0x1f); // ldc.i4.s
+                output.Add(unchecked((byte)(sbyte)value));
             }
 
             internal void EnumValues(string outerName, string nestedName, IReadOnlyDictionary<string, int> expected)

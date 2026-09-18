@@ -52,7 +52,7 @@ If an earlier test build created the configuration file, BepInEx may preserve it
 
 Treadwell 0.1.1 supports exactly:
 
-- Valheim `1.0.12` / Steam build `25253764`
+- Valheim `1.0.14` / Steam build `25364309`
 - Unity `6000.0.75f1`
 - BepInEx `5.4.23.5` (distributed by BepInExPack for Valheim `5.4.2350`)
 - Harmony `2.9.0.0`
