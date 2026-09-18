@@ -65,6 +65,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         for diagnostic in ("RuntimeDiagnostics", "Version.CurrentVersion", "Application.unityVersion", "ModuleVersionId"):
             self.assertIn(diagnostic, gate)
         self.assertLess(plugin.index("CompatibilityGate.Evaluate"), plugin.index("_features.Start"))
+        self.assertIn("Compatibility gate passed: \" + compatibility.Reason", plugin)
         self.assertIn("before any gameplay hooks were installed", plugin)
 
     def test_runtime_contract_requires_unique_exact_shapes_and_transactional_rollback(self):

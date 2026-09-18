@@ -49,7 +49,7 @@ namespace Treadwell
             try
             {
                 _features.Start();
-                Logger.LogInfo("Compatibility gate passed; configured feature modules are enabled.");
+                Logger.LogInfo("Compatibility gate passed: " + compatibility.Reason + "; configured feature modules are enabled.");
             }
             catch (Exception exception)
             {
