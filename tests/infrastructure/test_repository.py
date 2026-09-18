@@ -72,6 +72,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         gate = (PLUGIN_DIR / "CompatibilityGate.cs").read_text()
         module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
         host = (PLUGIN_DIR / "FeatureHost.cs").read_text()
+        runtime_safety = (ROOT / "src" / f"{IDENTIFIER}.Core" / "RuntimeSafety.cs").read_text()
+        core_tests = (ROOT / "tests" / f"{IDENTIFIER}.Tests" / "Program.cs").read_text()
         for marker in (
             "matches.Length != 1", "ParametersMatch", "RequireMethod", "RequireMethodNamedReturn",
             "RequirePatchMethod", "RequireField", "RequireProperty", "RequireGenericMethod", "RequireEnumValue",
@@ -82,8 +84,19 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "ZNetSceneOnDestroyPrefix", "GetRunSpeedFactorPostfix", "ModifyRunStaminaDrainPostfix",
         ):
             self.assertIn("RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(" + patch + ")", module)
+        for runtime_contract in (
+            'typeof(UnityEngine.Object), "name"', 'typeof(Color), "r"', 'typeof(Color), "g"',
+            'typeof(Color), "b"', 'typeof(Color), "a"', 'typeof(UnityEngine.Object), "op_Equality"',
+            'typeof(UnityEngine.Object), "op_Inequality"', 'typeof(Harmony), "Patch"',
+            'typeof(Harmony), "UnpatchSelf"', 'typeof(AccessTools), "DeclaredMethod"',
+        ):
+            self.assertIn(runtime_contract, module)
+        self.assertIn("TransactionalInstall.Run", module)
         self.assertIn("_harmony.UnpatchSelf()", module)
-        self.assertIn("cleanupFailures.Insert(0, installException)", module)
+        self.assertIn("foreach (var rollback in rollbackSteps)", runtime_safety)
+        self.assertIn("failed install executes every rollback step", core_tests)
+        self.assertIn("runtime method shape mismatch is rejected", core_tests)
+        self.assertIn("ambiguous runtime field contract is rejected", core_tests)
         self.assertIn("foreach (var module in _modules.Reverse())", host)
 
     def test_feature_modules_own_enable_disable_and_compatibility(self):

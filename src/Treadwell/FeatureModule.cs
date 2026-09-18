@@ -44,28 +44,12 @@ namespace Treadwell
         public void Enable()
         {
             if (_active) return;
-            try
-            {
-                InstallPatches();
-                _active = true;
-                Log.LogInfo("Enabled feature module: " + Id);
-            }
-            catch (Exception installException)
-            {
-                _active = false;
-                var cleanupFailures = new List<Exception>();
-                try { _harmony.UnpatchSelf(); }
-                catch (Exception exception) { cleanupFailures.Add(exception); }
-                try { OnDisabled(); }
-                catch (Exception exception) { cleanupFailures.Add(exception); }
-
-                if (cleanupFailures.Count != 0)
-                {
-                    cleanupFailures.Insert(0, installException);
-                    throw new AggregateException("Feature installation failed and rollback was incomplete.", cleanupFailures);
-                }
-                throw;
-            }
+            TransactionalInstall.Run(
+                InstallPatches,
+                () => _harmony.UnpatchSelf(),
+                OnDisabled);
+            _active = true;
+            Log.LogInfo("Enabled feature module: " + Id);
         }
 
         public void Disable()
@@ -216,9 +200,39 @@ namespace Treadwell
             CompatibilityGate.RequireProperty(failures, typeof(Component), "transform", typeof(Transform),
                 BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
             CompatibilityGate.RequireProperty(failures, typeof(Transform), "position", typeof(Vector3),
-                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: true);
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
             CompatibilityGate.RequireProperty(failures, typeof(Time), "unscaledTime", typeof(float),
                 BindingFlags.Static | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireProperty(failures, typeof(UnityEngine.Object), "name", typeof(string),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireField(failures, typeof(Color), "r", typeof(float), BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(Color), "g", typeof(float), BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(Color), "b", typeof(float), BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(Color), "a", typeof(float), BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireMethod(failures, typeof(UnityEngine.Object), "op_Equality", typeof(bool),
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(UnityEngine.Object), typeof(UnityEngine.Object) }, method => method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(UnityEngine.Object), "op_Inequality", typeof(bool),
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(UnityEngine.Object), typeof(UnityEngine.Object) }, method => method.IsStatic);
+
+            // Harmony itself is part of the runtime contract: validate exactly the API shapes emitted into this DLL.
+            CompatibilityGate.RequireConstructor(failures, typeof(Harmony),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, new[] { typeof(string) });
+            CompatibilityGate.RequireConstructor(failures, typeof(HarmonyMethod),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(Type), typeof(string), typeof(Type[]) });
+            CompatibilityGate.RequireMethod(failures, typeof(Harmony), "Patch", typeof(MethodInfo),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(MethodBase), typeof(HarmonyMethod), typeof(HarmonyMethod), typeof(HarmonyMethod), typeof(HarmonyMethod), typeof(HarmonyMethod) },
+                method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(Harmony), "UnpatchSelf", typeof(void),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes,
+                method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(AccessTools), "DeclaredMethod", typeof(MethodInfo),
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(Type), typeof(string), typeof(Type[]), typeof(Type[]) }, method => method.IsStatic);
+
             CompatibilityGate.RequireEnumValue(failures, typeof(TerrainModifier.PaintType), "Dirt", 0);
             CompatibilityGate.RequireEnumValue(failures, typeof(TerrainModifier.PaintType), "Cultivate", 1);
             CompatibilityGate.RequireEnumValue(failures, typeof(TerrainModifier.PaintType), "Paved", 2);
@@ -264,17 +278,27 @@ namespace Treadwell
 
         protected override void OnDisabled()
         {
-            if (_pavedSettingSubscribed)
+            var failures = new List<Exception>();
+            try
             {
-                _pavedRoadWithoutStonecutter.SettingChanged -= OnPavedRoadSettingChanged;
-                _pavedSettingSubscribed = false;
+                if (_pavedSettingSubscribed)
+                    _pavedRoadWithoutStonecutter.SettingChanged -= OnPavedRoadSettingChanged;
             }
-            RestorePavedRoadStation();
+            catch (Exception exception) { failures.Add(exception); }
+            _pavedSettingSubscribed = false;
+
+            try { RestorePavedRoadStation(); }
+            catch (Exception exception) { failures.Add(exception); }
+
             try { RefreshPlayerAvailablePieces(); }
             catch (Exception exception) { Log.LogWarning("Could not refresh vanilla build-piece availability during cleanup: " + exception); }
+
             _lastPieceTable = null;
             if (ReferenceEquals(_activeModule, this)) _activeModule = null;
             _surfaceTracker.Reset();
+
+            if (failures.Count != 0)
+                throw new AggregateException("Road feature cleanup was incomplete.", failures);
         }
 
         private static void PlayerSetPlaceModePrefix(PieceTable __0)

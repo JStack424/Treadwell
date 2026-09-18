@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using Treadwell.Core;
 
 namespace Treadwell.Tests
@@ -13,7 +14,8 @@ namespace Treadwell.Tests
             TuningTests();
             HysteresisTests();
             PavedRoadPlacementTests();
-            Console.WriteLine(_passed + "/56 core tests passed");
+            RuntimeSafetyTests();
+            Console.WriteLine(_passed + "/61 core tests passed");
             return 0;
         }
 
@@ -274,6 +276,52 @@ namespace Treadwell.Tests
                 Equal(StationOverrideApplyResult.InvalidPiece, NewStationOverride().Apply(null!)));
         }
 
+        private static void RuntimeSafetyTests()
+        {
+            const BindingFlags methods = BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly;
+            Run("exact runtime method contract is accepted", () =>
+                Equal(1, ExactRuntimeContract.FindMethods(
+                    typeof(FakeRuntimeContract), "Target", methods, typeof(int), new[] { typeof(string) }).Length));
+            Run("runtime method shape mismatch is rejected", () =>
+                Equal(0, ExactRuntimeContract.FindMethods(
+                    typeof(FakeRuntimeContract), "Target", methods, typeof(void), new[] { typeof(string) }).Length));
+            Run("ambiguous runtime field contract is rejected", () =>
+                Equal(2, ExactRuntimeContract.FindFields(
+                    typeof(DerivedAmbiguousContract), "Value",
+                    BindingFlags.Instance | BindingFlags.Public, typeof(int)).Length));
+            Run("failed install executes every rollback step", () =>
+            {
+                var firstRollbackRan = false;
+                var secondRollbackRan = false;
+                try
+                {
+                    TransactionalInstall.Run(
+                        () => throw new InvalidOperationException("install"),
+                        () =>
+                        {
+                            firstRollbackRan = true;
+                            throw new InvalidOperationException("cleanup");
+                        },
+                        () => secondRollbackRan = true);
+                    throw new InvalidOperationException("Expected transactional install failure.");
+                }
+                catch (AggregateException exception)
+                {
+                    Equal(2, exception.InnerExceptions.Count);
+                    Equal(true, firstRollbackRan);
+                    Equal(true, secondRollbackRan);
+                }
+            });
+            Run("successful install does not run rollback", () =>
+            {
+                var installed = false;
+                var rollbackRan = false;
+                TransactionalInstall.Run(() => installed = true, () => rollbackRan = true);
+                Equal(true, installed);
+                Equal(false, rollbackRan);
+            });
+        }
+
         private static PavedRoadCandidateShape Candidate(
             int pieceComponentCount = 1,
             bool hasRootPiece = true,
@@ -303,6 +351,21 @@ namespace Treadwell.Tests
 
         private static FakeStation ExactStation()
             => new FakeStation("captured-station");
+
+        private sealed class FakeRuntimeContract
+        {
+            public int Target(string value) => value.Length;
+        }
+
+        private class BaseAmbiguousContract
+        {
+            public int Value = 0;
+        }
+
+        private sealed class DerivedAmbiguousContract : BaseAmbiguousContract
+        {
+            public new int Value = 0;
+        }
 
         private sealed class FakePiece
         {

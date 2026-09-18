@@ -5,7 +5,7 @@
 - Replaced exact runtime game-version, assembly SHA-256, and MVID blocking with a contract-based compatibility gate, so compatible client/server builds and minor Valheim patches are not disabled solely because their build identity differs.
 - Kept pinned assembly hashes and MVIDs as build/reference provenance checks only.
 - Added exact, unique runtime checks for every patched target, Harmony patch method, accessed game member, and Unity road-discovery contract; missing or ambiguous signatures still fail closed before gameplay hooks are installed.
-- Strengthened transactional patch rollback so a partial installation is unpatched and all local recipe state is restored before Treadwell disables itself.
+- Strengthened transactional patch rollback so every cleanup step runs, gameplay entrypoints are cleared, the owned Paved Road station is restored, and any incomplete cleanup is reported before Treadwell remains disabled.
 - Preserved all paved-road placement, movement, configuration, multiplayer, and client-only behavior unchanged.
 
 ## 0.1.1

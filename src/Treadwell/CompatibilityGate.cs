@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using BepInEx;
 using HarmonyLib;
+using Treadwell.Core;
 using UnityEngine;
 
 namespace Treadwell
@@ -45,12 +46,8 @@ namespace Treadwell
             MethodInfo[] matches;
             try
             {
-                matches = declaringType.GetMethods(flags)
-                    .Where(method => string.Equals(method.Name, name, StringComparison.Ordinal))
-                    .Where(method => method.ReturnType == returnType)
-                    .Where(method => ParametersMatch(method.GetParameters(), parameterTypes))
-                    .Where(method => additionalCheck == null || additionalCheck(method))
-                    .ToArray();
+                matches = ExactRuntimeContract.FindMethods(
+                    declaringType, name, flags, returnType, parameterTypes, additionalCheck);
             }
             catch (Exception exception)
             {
@@ -60,6 +57,27 @@ namespace Treadwell
 
             if (matches.Length != 1)
                 failures.Add(declaringType.Name + "." + name + " requires one exact runtime signature; found " + matches.Length);
+        }
+
+        internal static void RequireConstructor(
+            ICollection<string> failures,
+            Type declaringType,
+            BindingFlags flags,
+            Type[] parameterTypes)
+        {
+            ConstructorInfo[] matches;
+            try
+            {
+                matches = ExactRuntimeContract.FindConstructors(declaringType, flags, parameterTypes);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(declaringType.Name + " constructor inspection threw: " + exception.GetType().Name);
+                return;
+            }
+
+            if (matches.Length != 1)
+                failures.Add(declaringType.Name + " requires one exact runtime constructor; found " + matches.Length);
         }
 
         internal static void RequireMethodNamedReturn(
@@ -110,9 +128,8 @@ namespace Treadwell
             FieldInfo[] matches;
             try
             {
-                matches = declaringType.GetFields(flags | BindingFlags.DeclaredOnly)
-                    .Where(field => string.Equals(field.Name, name, StringComparison.Ordinal) && field.FieldType == fieldType)
-                    .ToArray();
+                matches = ExactRuntimeContract.FindFields(
+                    declaringType, name, flags | BindingFlags.DeclaredOnly, fieldType);
             }
             catch (Exception exception)
             {
@@ -136,9 +153,8 @@ namespace Treadwell
             PropertyInfo[] matches;
             try
             {
-                matches = declaringType.GetProperties(flags)
-                    .Where(property => string.Equals(property.Name, name, StringComparison.Ordinal))
-                    .Where(property => property.PropertyType == propertyType && property.GetIndexParameters().Length == 0)
+                matches = ExactRuntimeContract.FindProperties(declaringType, name, flags, propertyType)
+                    .Where(property => property.GetIndexParameters().Length == 0)
                     .Where(property => !requireGetter || property.GetGetMethod(true) != null)
                     .Where(property => !requireSetter || property.GetSetMethod(true) != null)
                     .ToArray();

@@ -67,7 +67,7 @@ Private Valheim and BepInEx assemblies remain untracked and are never packaged.
 ./scripts/test-package.sh
 ```
 
-The build performs locked restore, warning-as-error Release compilation, pure behavior tests, an independent assembly-contract test against the pinned provenance assembly, reference fingerprint checks, runtime contract-gate checks, repository checks, and an exact five-file package audit.
+The build performs locked restore, warning-as-error Release compilation, pure behavior tests (including exact-contract acceptance/rejection and transactional rollback), an independent assembly-contract test against the pinned provenance assembly, reference fingerprint checks, repository checks, and an exact five-file package audit.
 
 ## Source, issues, and license
 
