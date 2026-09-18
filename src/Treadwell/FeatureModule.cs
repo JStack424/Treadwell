@@ -313,25 +313,32 @@ namespace Treadwell
         protected override void OnDisabled()
         {
             var failures = new List<Exception>();
-            try
+            if (_pavedSettingSubscribed)
             {
-                if (_pavedSettingSubscribed)
+                try
+                {
                     _pavedRoadWithoutStonecutter.SettingChanged -= OnPavedRoadSettingChanged;
+                    _pavedSettingSubscribed = false;
+                }
+                catch (Exception exception) { failures.Add(exception); }
             }
-            catch (Exception exception) { failures.Add(exception); }
-            _pavedSettingSubscribed = false;
 
             try { RestorePavedRoadStation(); }
             catch (Exception exception) { failures.Add(exception); }
 
-            try { RefreshPlayerAvailablePieces(); }
-            catch (Exception exception) { Log.LogWarning("Could not refresh vanilla build-piece availability during cleanup: " + exception); }
-
+            // Clear every gameplay entrypoint before best-effort UI refresh/logging.
             _lastPieceTable = null;
             if (ReferenceEquals(_activeModule, this)) _activeModule = null;
+            _surfaceTracker.Reset();
+
+            try { RefreshPlayerAvailablePieces(); }
+            catch (Exception exception)
+            {
+                try { Log.LogWarning("Could not refresh vanilla build-piece availability during cleanup: " + exception); }
+                catch { }
+            }
             GetLastGroundColliderMethod = null;
             UpdateAvailablePiecesListMethod = null;
-            _surfaceTracker.Reset();
 
             if (failures.Count != 0)
                 throw new AggregateException("Road feature cleanup was incomplete.", failures);
@@ -363,6 +370,7 @@ namespace Treadwell
 
         private void OnPavedRoadSettingChanged(object sender, EventArgs eventArgs)
         {
+            if (!ReferenceEquals(_activeModule, this)) return;
             try
             {
                 if (_pavedRoadWithoutStonecutter.Value) RefreshCurrentBuildPieces();

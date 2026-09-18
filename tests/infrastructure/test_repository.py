@@ -62,8 +62,11 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "SupportedBepInExVersion", "SupportedHarmonyVersion", "SHA256.Create", "File.OpenRead",
         ):
             self.assertNotIn(forbidden, gate)
-        for diagnostic in ("RuntimeDiagnostics", "Version.CurrentVersion", "Application.unityVersion", "ModuleVersionId"):
+        for diagnostic in ("RuntimeDiagnostics", 'GetType("Version"', 'typeof(Application), "unityVersion"', "ModuleVersionId"):
             self.assertIn(diagnostic, gate)
+        self.assertNotIn("Version.CurrentVersion", gate)
+        self.assertNotIn("Application.unityVersion", gate)
+        self.assertIn("ReadStaticDiagnosticProperty", gate)
         self.assertLess(plugin.index("CompatibilityGate.Evaluate"), plugin.index("_features.Start"))
         self.assertIn("Compatibility gate passed: \" + compatibility.Reason", plugin)
         self.assertIn("before any gameplay hooks were installed", plugin)
@@ -102,6 +105,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("_cleanupPending", module)
         self.assertIn("if (!_active && !_cleanupPending) return", module)
         self.assertIn("OnDisable/OnDestroy can retry", plugin)
+        self.assertIn("SettingChanged -= OnPavedRoadSettingChanged;\n                    _pavedSettingSubscribed = false", module)
+        self.assertIn("if (!ReferenceEquals(_activeModule, this)) return", module)
         self.assertIn("Harmony construction is deliberately deferred", module)
         self.assertNotIn("private static readonly MethodInfo GetLastGroundColliderMethod", module)
         self.assertIn("foreach (var module in _modules.Reverse())", host)

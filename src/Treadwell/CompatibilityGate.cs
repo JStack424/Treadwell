@@ -250,20 +250,36 @@ namespace Treadwell
 
         private static string RuntimeDiagnostics()
         {
-            try
+            // Identity is optional diagnostics, never a startup dependency. Read the
+            // game/Unity version properties reflectively so a changed diagnostic-only
+            // getter cannot fail JIT binding before this guarded code runs.
+            var gameVersion = ReadStaticDiagnosticProperty(
+                typeof(Player).Assembly.GetType("Version", throwOnError: false), "CurrentVersion");
+            var unityVersion = ReadStaticDiagnosticProperty(typeof(Application), "unityVersion");
+            var bepinexVersion = SafeDiagnostic(() => typeof(BaseUnityPlugin).Assembly.GetName().Version?.ToString());
+            var harmonyVersion = SafeDiagnostic(() => typeof(Harmony).Assembly.GetName().Version?.ToString());
+            var valheimMvid = SafeDiagnostic(() => typeof(Player).Assembly.ManifestModule.ModuleVersionId.ToString());
+            return "game " + gameVersion + ", Unity " + unityVersion + ", BepInEx " + bepinexVersion +
+                   ", Harmony " + harmonyVersion + ", assembly MVID " + valheimMvid;
+        }
+
+        private static string ReadStaticDiagnosticProperty(Type declaringType, string name)
+        {
+            if (declaringType == null) return "unknown";
+            return SafeDiagnostic(() =>
             {
-                var gameVersion = global::Version.CurrentVersion != null ? global::Version.CurrentVersion.ToString() : "unknown";
-                var unityVersion = Application.unityVersion ?? "unknown";
-                var bepinexVersion = typeof(BaseUnityPlugin).Assembly.GetName().Version?.ToString() ?? "unknown";
-                var harmonyVersion = typeof(Harmony).Assembly.GetName().Version?.ToString() ?? "unknown";
-                var valheimMvid = typeof(Player).Assembly.ManifestModule.ModuleVersionId;
-                return "game " + gameVersion + ", Unity " + unityVersion + ", BepInEx " + bepinexVersion +
-                       ", Harmony " + harmonyVersion + ", assembly MVID " + valheimMvid;
-            }
-            catch (Exception exception)
-            {
-                return "runtime diagnostics unavailable: " + exception.GetType().Name;
-            }
+                var properties = declaringType.GetProperties(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                    .Where(property => string.Equals(property.Name, name, StringComparison.Ordinal))
+                    .Where(property => property.GetIndexParameters().Length == 0 && property.GetGetMethod(true) != null)
+                    .ToArray();
+                return properties.Length == 1 ? properties[0].GetValue(null, null)?.ToString() : "unknown";
+            });
+        }
+
+        private static string SafeDiagnostic(Func<string> read)
+        {
+            try { return read() ?? "unknown"; }
+            catch { return "unknown"; }
         }
     }
 }
