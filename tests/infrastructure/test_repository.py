@@ -93,7 +93,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         ):
             self.assertIn(runtime_contract, module)
         self.assertIn("TransactionalInstall.Run", module)
-        self.assertIn("_harmony.UnpatchSelf()", module)
+        self.assertIn("_harmony?.UnpatchSelf()", module)
         self.assertIn("foreach (var rollback in rollbackSteps)", runtime_safety)
         self.assertIn("failed install executes every rollback step", core_tests)
         self.assertIn("runtime method shape mismatch is rejected", core_tests)
@@ -102,6 +102,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("_cleanupPending", module)
         self.assertIn("if (!_active && !_cleanupPending) return", module)
         self.assertIn("OnDisable/OnDestroy can retry", plugin)
+        self.assertIn("Harmony construction is deliberately deferred", module)
+        self.assertNotIn("private static readonly MethodInfo GetLastGroundColliderMethod", module)
         self.assertIn("foreach (var module in _modules.Reverse())", host)
 
     def test_feature_modules_own_enable_disable_and_compatibility(self):
@@ -109,8 +111,9 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         host = (PLUGIN_DIR / "FeatureHost.cs").read_text()
         for marker in ("ValidateCompatibility", "void Enable()", "void Disable()", "ConfigEntry<bool> Enabled"):
             self.assertIn(marker, module)
-        self.assertIn("new Harmony(Plugin.PluginGuid + \".feature.\" + id)", module)
-        self.assertIn("_harmony.UnpatchSelf()", module)
+        self.assertIn("_harmonyId = Plugin.PluginGuid + \".feature.\" + id", module)
+        self.assertIn("_harmony = new Harmony(_harmonyId)", module)
+        self.assertIn("_harmony?.UnpatchSelf()", module)
         self.assertIn("foreach (var module in _modules.Reverse())", host)
 
     def test_feature_scope_and_exact_six_settings(self):

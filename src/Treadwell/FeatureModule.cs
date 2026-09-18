@@ -22,7 +22,8 @@ namespace Treadwell
 
     internal abstract class FeatureModuleBase : IFeatureModule
     {
-        private readonly Harmony _harmony;
+        private readonly string _harmonyId;
+        private Harmony _harmony;
         private bool _active;
         private bool _cleanupPending;
 
@@ -32,13 +33,13 @@ namespace Treadwell
             Id = id;
             Enabled = enabled ?? throw new ArgumentNullException(nameof(enabled));
             Log = log ?? throw new ArgumentNullException(nameof(log));
-            _harmony = new Harmony(Plugin.PluginGuid + ".feature." + id);
+            _harmonyId = Plugin.PluginGuid + ".feature." + id;
         }
 
         public string Id { get; }
         public ConfigEntry<bool> Enabled { get; }
         protected ManualLogSource Log { get; }
-        protected Harmony Harmony => _harmony;
+        protected Harmony Harmony => _harmony ?? throw new InvalidOperationException("Harmony was not initialized after compatibility validation.");
 
         public abstract void ValidateCompatibility(ICollection<string> failures);
 
@@ -50,9 +51,12 @@ namespace Treadwell
             _cleanupPending = true;
             try
             {
+                // Harmony construction is deliberately deferred until the complete
+                // runtime contract has passed in Plugin.Awake.
+                _harmony = new Harmony(_harmonyId);
                 TransactionalInstall.Run(
                     InstallPatches,
-                    () => _harmony.UnpatchSelf(),
+                    () => _harmony?.UnpatchSelf(),
                     OnDisabled);
                 _active = true;
                 _cleanupPending = false;
@@ -72,7 +76,7 @@ namespace Treadwell
             if (!_active && !_cleanupPending) return;
 
             var failures = new List<Exception>();
-            try { _harmony.UnpatchSelf(); }
+            try { _harmony?.UnpatchSelf(); }
             catch (Exception exception) { failures.Add(exception); }
 
             try { OnDisabled(); }
@@ -85,6 +89,7 @@ namespace Treadwell
                 throw new AggregateException("Feature cleanup failed for " + Id + ".", failures);
             }
 
+            _harmony = null;
             _cleanupPending = false;
             Log.LogInfo("Disabled feature module: " + Id);
         }
@@ -98,10 +103,8 @@ namespace Treadwell
         internal const double NaturalGapHoldSeconds = 0.18d;
         private static RoadFeatureModule _activeModule;
 
-        private static readonly MethodInfo GetLastGroundColliderMethod =
-            AccessTools.DeclaredMethod(typeof(Character), "GetLastGroundCollider", Type.EmptyTypes);
-        private static readonly MethodInfo UpdateAvailablePiecesListMethod =
-            AccessTools.DeclaredMethod(typeof(Player), "UpdateAvailablePiecesList", Type.EmptyTypes);
+        private static MethodInfo GetLastGroundColliderMethod;
+        private static MethodInfo UpdateAvailablePiecesListMethod;
 
         private readonly ConfigEntry<bool> _pavedRoadWithoutStonecutter;
         private readonly ConfigEntry<float> _dirtSpeed;
@@ -272,6 +275,12 @@ namespace Treadwell
             if (_activeModule != null && !ReferenceEquals(_activeModule, this))
                 throw new InvalidOperationException("Another road feature module is already active.");
 
+            GetLastGroundColliderMethod = AccessTools.DeclaredMethod(
+                typeof(Character), "GetLastGroundCollider", Type.EmptyTypes)
+                ?? throw new MissingMethodException(typeof(Character).FullName, "GetLastGroundCollider");
+            UpdateAvailablePiecesListMethod = AccessTools.DeclaredMethod(
+                typeof(Player), "UpdateAvailablePiecesList", Type.EmptyTypes)
+                ?? throw new MissingMethodException(typeof(Player).FullName, "UpdateAvailablePiecesList");
             _activeModule = this;
             Harmony.Patch(
                 AccessTools.DeclaredMethod(typeof(Player), "SetPlaceMode", new[] { typeof(PieceTable) }),
@@ -320,6 +329,8 @@ namespace Treadwell
 
             _lastPieceTable = null;
             if (ReferenceEquals(_activeModule, this)) _activeModule = null;
+            GetLastGroundColliderMethod = null;
+            UpdateAvailablePiecesListMethod = null;
             _surfaceTracker.Reset();
 
             if (failures.Count != 0)
