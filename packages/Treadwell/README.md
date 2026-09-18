@@ -38,9 +38,11 @@ If you used an earlier test build, BepInEx may retain its older values. Delete `
 
 ## Compatibility and safety
 
-Treadwell 0.1.1 supports exactly **Valheim 1.0.14 / Steam build 25364309**. It validates the pinned runtime, piece-table and movement hooks, terrain APIs, and field contracts before installing its Harmony patches. The paved-road change runs as Valheim enters place mode, before availability refresh, and re-discovers the active-table candidate immediately before vanilla requirement checks. It sets only the uniquely selected semantic Paved Road recipe's crafting-station reference to `null`, locally and reversibly; all resource and placement handling remains vanilla. An unverified game update or changed contract disables Treadwell instead of guessing.
+Treadwell 0.1.2 uses a contract-based compatibility gate. Valheim's displayed version, Unity version, assembly hash, and MVID are not runtime allowlists, so compatible minor patches and client/server assembly variants are not rejected solely because their build identity differs. Before installing anything, Treadwell requires one exact match for every patched target and overload, matching Harmony patch methods, every accessed game field, and the Unity road-discovery and terrain contracts it needs. Missing, ambiguous, or changed contracts still disable Treadwell safely. A partial patch installation is rolled back before the mod remains disabled.
 
-The core road bonuses have been live-tested in Valheim. The recipe-level stonecutter removal and multiplayer behavior still require live validation, and future game versions are not assumed compatible.
+The build is compiled and independently checked against a pinned Valheim 1.0.14 reference assembly; its SHA-256 and MVID protect build provenance only. The paved-road change runs as Valheim enters place mode, before availability refresh, and re-discovers the active-table candidate immediately before vanilla requirement checks. It sets only the uniquely selected semantic Paved Road recipe's crafting-station reference to `null`, locally and reversibly; all resource and placement handling remains vanilla.
+
+The core road bonuses have been live-tested in Valheim. The recipe-level stonecutter removal and multiplayer behavior still require live validation.
 
 ## Source and issues
 
