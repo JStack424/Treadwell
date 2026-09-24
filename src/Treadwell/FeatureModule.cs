@@ -122,6 +122,8 @@ namespace Treadwell
                 [TerrainBrushKind.PavedRoad] = new TerrainRadiusSelection(3f)
             };
         private PieceTable _radiusPieceTable;
+        private int _radiusValidationFrame = -1;
+        private bool _radiusValidationResult;
         private GameObject _scaledPlacementGhost;
         private Vector3 _scaledPlacementGhostBaseScale;
         private Vector3 _scaledPlacementGhostAppliedScale;
@@ -519,6 +521,8 @@ namespace Treadwell
             RestoreScaledPlacementGhost();
             _terrainBrushes.Clear();
             _radiusPieceTable = table;
+            _radiusValidationFrame = -1;
+            _radiusValidationResult = false;
             if (table == null) return;
 
             var candidates = new Dictionary<TerrainBrushKind, List<PieceTableEntryInspection>>
@@ -583,6 +587,46 @@ namespace Treadwell
             }
         }
 
+        private bool RevalidateTerrainRadiusBindings(bool force)
+        {
+            var frame = Time.frameCount;
+            if (!force && _radiusValidationFrame == frame) return _radiusValidationResult;
+
+            _radiusValidationFrame = frame;
+            _radiusValidationResult = false;
+            if (_radiusPieceTable == null || _terrainBrushes.Count != 3) return false;
+
+            var candidates = new Dictionary<TerrainBrushKind, List<PieceTableEntryInspection>>
+            {
+                [TerrainBrushKind.LevelGround] = new List<PieceTableEntryInspection>(),
+                [TerrainBrushKind.Pathen] = new List<PieceTableEntryInspection>(),
+                [TerrainBrushKind.PavedRoad] = new List<PieceTableEntryInspection>()
+            };
+            foreach (var entry in InspectPieceTable(_radiusPieceTable))
+            {
+                var kind = VanillaTerrainBrushClassifier.Classify(entry.BrushShape);
+                if (kind == TerrainBrushKind.None || entry.TerrainOps.Length != 1 || entry.TerrainOps[0] == null) continue;
+                if (!HasExpectedVanillaRadii(kind, entry.TerrainOps[0].m_settings)) continue;
+                candidates[kind].Add(entry);
+            }
+
+            foreach (var pair in candidates)
+            {
+                if (pair.Value.Count != 1) return false;
+                var entry = pair.Value[0];
+                if (entry.Piece == null || !_terrainBrushes.TryGetValue(entry.Piece, out var binding) ||
+                    binding.Kind != pair.Key || !ReferenceEquals(binding.Piece, entry.Piece) ||
+                    !ReferenceEquals(binding.TerrainOp, entry.TerrainOps[0]) ||
+                    !Approximately(binding.VanillaRadius, entry.TerrainOps[0].GetRadius()))
+                {
+                    return false;
+                }
+            }
+
+            _radiusValidationResult = true;
+            return true;
+        }
+
         private void UpdateTerrainRadiusInput(Player player, bool takeInput, GameObject placementGhost)
         {
             if (player == null || player != Player.m_localPlayer || !player.InPlaceMode() || player.IsDead() ||
@@ -618,6 +662,7 @@ namespace Treadwell
         private bool SynchronizePlacementGhost(GameObject placementGhost, TerrainBrushBinding binding)
         {
             if (binding == null || binding.TerrainOp == null ||
+                !RevalidateTerrainRadiusBindings(force: false) ||
                 !HasExpectedVanillaRadii(binding.Kind, binding.TerrainOp.m_settings))
             {
                 RestoreScaledPlacementGhost();
@@ -668,7 +713,16 @@ namespace Treadwell
             if (!ReferenceEquals(table, _radiusPieceTable)) RefreshTerrainRadiusBrushes(table);
             if (table == null || !ReferenceEquals(table.GetSelectedPiece(), piece)) return null;
             if (!_terrainBrushes.TryGetValue(piece, out var binding) || !binding.IndicatorSynchronized ||
-                binding.TerrainOp == null || !HasExpectedVanillaRadii(binding.Kind, binding.TerrainOp.m_settings) ||
+                binding.TerrainOp == null)
+            {
+                return null;
+            }
+            if (!RevalidateTerrainRadiusBindings(force: true))
+            {
+                RestoreScaledPlacementGhost();
+                return null;
+            }
+            if (!HasExpectedVanillaRadii(binding.Kind, binding.TerrainOp.m_settings) ||
                 _scaledPlacementGhost == null || !_scaledPlacementGhost.activeInHierarchy ||
                 !Approximately(_scaledPlacementGhost.transform.localScale, _scaledPlacementGhostAppliedScale))
             {
@@ -689,6 +743,8 @@ namespace Treadwell
             foreach (var binding in _terrainBrushes.Values) binding.IndicatorSynchronized = false;
             _terrainBrushes.Clear();
             _radiusPieceTable = null;
+            _radiusValidationFrame = -1;
+            _radiusValidationResult = false;
             _suppressMouseWheelFrame = -1;
         }
 

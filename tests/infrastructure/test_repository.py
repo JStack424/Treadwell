@@ -222,6 +222,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "_suppressMouseWheelFrame = Time.frameCount", 'transform.Find("_GhostOnly")',
             "markerObject.activeInHierarchy", "marker.localScale = _scaledPlacementGhostAppliedScale",
             "_scaledPlacementGhostBaseScale.y * scale", "mutation.Apply(radius.Radius)",
+            "RevalidateTerrainRadiusBindings(force: false)", "RevalidateTerrainRadiusBindings(force: true)",
             "__state?.Restore", "ResetTerrainRadiusRuntime", "binding.VanillaRadius",
         ):
             self.assertIn(marker, module)
