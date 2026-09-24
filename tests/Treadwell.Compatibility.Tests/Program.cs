@@ -37,6 +37,12 @@ namespace Treadwell.Compatibility.Tests
             contract.Method("Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
             contract.Method("Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" }, MethodAttributes.Public);
             contract.Method("Player", "UpdatePlacement", "System.Void", new[] { "System.Boolean", "System.Single" }, MethodAttributes.Private);
+            contract.Method("Player", "PlacePiece", "System.Void",
+                new[] { "Piece", "UnityEngine.Vector3", "UnityEngine.Quaternion", "System.Boolean", "System.Boolean" }, MethodAttributes.Public);
+            contract.Method("Player", "InPlaceMode", "System.Boolean", Array.Empty<string>(), MethodAttributes.Public | MethodAttributes.Virtual);
+            contract.Method("Player", "IsDead", "System.Boolean", Array.Empty<string>(), MethodAttributes.Public | MethodAttributes.Virtual);
+            contract.Method("PieceTable", "GetSelectedPiece", "Piece", Array.Empty<string>(), MethodAttributes.Public);
+            contract.Method("TerrainModifier", "GetRadius", "System.Single", Array.Empty<string>(), MethodAttributes.Public);
             contract.Method("Character", "UpdateWalking", "System.Void", new[] { "System.Single" }, MethodAttributes.Private);
             contract.Method("Player", "CheckRun", "System.Boolean", new[] { "UnityEngine.Vector3", "System.Single" },
                 MethodAttributes.Family | MethodAttributes.Virtual);
@@ -50,6 +56,7 @@ namespace Treadwell.Compatibility.Tests
             contract.Method("Heightmap", "GetPaintMask", "UnityEngine.Color", new[] { "UnityEngine.Vector3" }, MethodAttributes.Public);
 
             contract.Field("Player", "m_localPlayer", "Player", FieldAttributes.Public | FieldAttributes.Static);
+            contract.Field("Player", "m_placementGhost", "UnityEngine.GameObject", FieldAttributes.Private);
             contract.Field("PieceTable", "m_pieces", "System.Collections.Generic.List`1<UnityEngine.GameObject>", FieldAttributes.Public);
             contract.Field("Piece", "m_name", "System.String", FieldAttributes.Public);
             contract.Field("Piece", "m_craftingStation", "CraftingStation", FieldAttributes.Public);
@@ -57,6 +64,12 @@ namespace Treadwell.Compatibility.Tests
             contract.NestedField("Piece", "Requirement", "m_resItem", "ItemDrop", FieldAttributes.Public);
             contract.NestedField("Piece", "Requirement", "m_amount", "System.Int32", FieldAttributes.Public);
             contract.Field("TerrainModifier", "m_paintType", "PaintType", FieldAttributes.Public);
+            contract.Field("TerrainModifier", "m_level", "System.Boolean", FieldAttributes.Public);
+            contract.Field("TerrainModifier", "m_levelRadius", "System.Single", FieldAttributes.Public);
+            contract.Field("TerrainModifier", "m_smooth", "System.Boolean", FieldAttributes.Public);
+            contract.Field("TerrainModifier", "m_smoothRadius", "System.Single", FieldAttributes.Public);
+            contract.Field("TerrainModifier", "m_paintCleared", "System.Boolean", FieldAttributes.Public);
+            contract.Field("TerrainModifier", "m_paintRadius", "System.Single", FieldAttributes.Public);
             contract.Field("SEMan", "m_character", "Character", FieldAttributes.Private);
             contract.Field("Heightmap", "m_paintMaskDirt", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
             contract.Field("Heightmap", "m_paintMaskCultivated", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
@@ -75,6 +88,14 @@ namespace Treadwell.Compatibility.Tests
                 "PieceTable", "UpdateAvailable", "System.Void",
                 new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" },
                 "UnityEngine.GameObject", "GetComponent", "Piece");
+            contract.MethodCallCount(
+                "Player", "PlacePiece", "System.Void",
+                new[] { "Piece", "UnityEngine.Vector3", "UnityEngine.Quaternion", "System.Boolean", "System.Boolean" },
+                "TerrainModifier", "SetTriggerOnPlaced", "System.Void", new[] { "System.Boolean" }, 2);
+            contract.GenericMethodCall(
+                "Player", "PlacePiece", "System.Void",
+                new[] { "Piece", "UnityEngine.Vector3", "UnityEngine.Quaternion", "System.Boolean", "System.Boolean" },
+                "UnityEngine.Object", "Instantiate", "UnityEngine.GameObject");
             contract.MethodCalls(
                 "Player", "SetPlaceMode", "System.Void", new[] { "PieceTable" },
                 "Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>());
@@ -100,7 +121,7 @@ namespace Treadwell.Compatibility.Tests
                 ["Cultivate"] = 1,
                 ["Paved"] = 2
             });
-            Console.WriteLine(_passed + "/41 compatibility contract checks passed");
+            Console.WriteLine(_passed + "/55 compatibility contract checks passed");
             return 0;
         }
 
@@ -315,9 +336,14 @@ namespace Treadwell.Compatibility.Tests
                     var arguments = specification.DecodeSignature(_provider, null);
                     return parentName == targetType && arguments.SequenceEqual(new[] { genericArgument });
                 }).ToArray();
-                if (matches.Length != 1)
-                    throw new InvalidOperationException(sourceType + "." + sourceName + " generic target mismatch: " + matches.Length);
-                RequireInstructionToken(source, new byte[] { 0x28, 0x6f }, MetadataTokens.GetToken(matches[0]),
+                var sourceIl = MethodIl(source);
+                var calledMatches = matches
+                    .Where(handle => FindCallOffsets(sourceIl, MetadataTokens.GetToken(handle)).Count > 0)
+                    .ToArray();
+                if (calledMatches.Length != 1)
+                    throw new InvalidOperationException(sourceType + "." + sourceName + " generic target mismatch: " +
+                                                        calledMatches.Length + " called of " + matches.Length + " compatible specifications");
+                RequireInstructionToken(source, new byte[] { 0x28, 0x6f }, MetadataTokens.GetToken(calledMatches[0]),
                     sourceType + "." + sourceName + " calls " + targetType + "." + targetName + "<" + genericArgument + ">");
             }
 
@@ -329,6 +355,22 @@ namespace Treadwell.Compatibility.Tests
                 var field = FindFieldHandle(fieldType, fieldName, "CraftingStation");
                 RequireInstructionToken(source, new byte[] { 0x7b }, MetadataTokens.GetToken(field),
                     sourceType + "." + sourceName + " reads " + fieldType + "." + fieldName);
+            }
+
+            internal void MethodCallCount(
+                string sourceType, string sourceName, string sourceReturn, string[] sourceParameters,
+                string targetType, string targetName, string targetReturn, string[] targetParameters,
+                int expectedCount)
+            {
+                var source = FindMethodHandle(sourceType, sourceName, sourceReturn, sourceParameters);
+                var target = FindMethodHandle(targetType, targetName, targetReturn, targetParameters);
+                var count = FindCallOffsets(MethodIl(source), MetadataTokens.GetToken(target)).Count;
+                if (count != expectedCount)
+                    throw new InvalidOperationException(sourceType + "." + sourceName + " call count for " +
+                                                        targetType + "." + targetName + " mismatch: " + count);
+                _passed++;
+                Console.WriteLine("PASS IL " + sourceType + "." + sourceName + " calls " +
+                                  targetType + "." + targetName + " exactly " + expectedCount + " times");
             }
 
             internal void MethodCalls(

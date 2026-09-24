@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- Added session-only terrain-radius controls for the hoe's exact vanilla Level Ground, Pathen, and Paved Road actions: hold Left Alt or Right Alt and scroll in 0.5 m steps from 1–10 m.
+- Kept the placement brush and real terrain operation in proportional lockstep by scaling the placement ghost's dedicated `_GhostOnly` geometry and applying the same target radius to every active level, smooth, and paint field.
+- Limited recognition to one unique semantic three-piece set in the active hoe table, with one root Piece, one TerrainModifier, and Valheim's exact 2 m baseline. Raise Ground, cultivator actions, removal mode, hammer pieces, other actions, missing pieces, and ambiguous/modded duplicates fail closed.
+- Consumed mouse-wheel input only while Alt is held with an eligible synchronized brush; ordinary scroll and rotation behavior remains vanilla everywhere else.
+- Applied terrain-radius fields only around Valheim's synchronous `Player.PlacePiece` clone, with finalizer restoration, conditional conflict-safe cleanup, and reset paths for selection/tool changes, scene unload, disable/unload, and exceptions.
+- Expanded runtime contracts and pinned 1.0.14 assembly checks for placement input, selection, placement cloning, terrain-radius fields, visible marker scaling, and mouse-wheel suppression.
+- Preserved all live-successful 0.1.2 road bonuses, compatibility behavior, and Paved Road stonecutter removal.
+- This is a test build pending live validation of radius input, brush/effect lockstep, and multiplayer behavior.
+
 ## 0.1.2
 
 - Replaced exact runtime game-version, assembly SHA-256, and MVID blocking with a contract-based compatibility gate, so compatible client/server builds and minor Valheim patches are not disabled solely because their build identity differs.

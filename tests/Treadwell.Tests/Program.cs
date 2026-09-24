@@ -14,8 +14,9 @@ namespace Treadwell.Tests
             TuningTests();
             HysteresisTests();
             PavedRoadPlacementTests();
+            TerrainRadiusTests();
             RuntimeSafetyTests();
-            Console.WriteLine(_passed + "/63 core tests passed");
+            Console.WriteLine(_passed + " core tests passed");
             return 0;
         }
 
@@ -338,6 +339,107 @@ namespace Treadwell.Tests
             });
             Run("null piece is rejected without mutation", () =>
                 Equal(StationOverrideApplyResult.InvalidPiece, NewStationOverride().Apply(null!)));
+        }
+
+        private static void TerrainRadiusTests()
+        {
+            TerrainBrushShape Shape(
+                bool level = false,
+                bool smooth = false,
+                bool paint = false,
+                int paintType = -1,
+                bool station = false,
+                int resources = 0,
+                int single = 0,
+                int stone = 0,
+                int pieces = 1,
+                bool root = true,
+                int modifiers = 1)
+                => new TerrainBrushShape(pieces, root, modifiers, level, smooth, paint, paintType,
+                    station, resources, single, stone);
+
+            Run("exact zero-cost level operation is Level Ground", () =>
+                Equal(TerrainBrushKind.LevelGround,
+                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, smooth: true))));
+            Run("Level Ground wins even when its terrain operation also clears paint", () =>
+                Equal(TerrainBrushKind.LevelGround,
+                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, smooth: true, paint: true, paintType: 0))));
+            Run("exact zero-cost dirt paint operation is Pathen", () =>
+                Equal(TerrainBrushKind.Pathen,
+                    VanillaTerrainBrushClassifier.Classify(Shape(smooth: true, paint: true, paintType: 0))));
+            Run("exact station-backed single-stone paved operation is Paved Road", () =>
+                Equal(TerrainBrushKind.PavedRoad,
+                    VanillaTerrainBrushClassifier.Classify(Shape(smooth: true, paint: true, paintType: 2,
+                        station: true, resources: 1, single: 1, stone: 1))));
+            Run("Raise Ground is excluded", () =>
+                Equal(TerrainBrushKind.None,
+                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, resources: 1, single: 1, stone: 1))));
+            Run("cultivator paint is excluded", () =>
+                Equal(TerrainBrushKind.None,
+                    VanillaTerrainBrushClassifier.Classify(Shape(paint: true, paintType: 1))));
+            Run("terrain reset paint is excluded", () =>
+                Equal(TerrainBrushKind.None,
+                    VanillaTerrainBrushClassifier.Classify(Shape(paint: true, paintType: 3))));
+            Run("ordinary hammer piece is excluded", () =>
+                Equal(TerrainBrushKind.None,
+                    VanillaTerrainBrushClassifier.Classify(Shape(modifiers: 0))));
+            Run("child Piece ambiguity is excluded", () =>
+                Equal(TerrainBrushKind.None,
+                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, pieces: 2))));
+            Run("missing root Piece is excluded", () =>
+                Equal(TerrainBrushKind.None,
+                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, root: false))));
+            Run("extra TerrainModifier is excluded", () =>
+                Equal(TerrainBrushKind.None,
+                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, modifiers: 2))));
+            Run("paved paint without vanilla recipe shape is excluded", () =>
+                Equal(TerrainBrushKind.None,
+                    VanillaTerrainBrushClassifier.Classify(Shape(paint: true, paintType: 2))));
+
+            Run("radius begins at vanilla two metres", () => Near(2f, new TerrainRadiusSelection(2f).Radius));
+            Run("scroll up increases radius by half a metre", () =>
+                Near(2.5f, new TerrainRadiusSelection(2f).Scroll(1f).Radius));
+            Run("scroll down decreases radius by half a metre", () =>
+                Near(1.5f, new TerrainRadiusSelection(2f).Scroll(-1f).Radius));
+            Run("zero scroll leaves radius unchanged", () =>
+                Near(2f, new TerrainRadiusSelection(2f).Scroll(0f).Radius));
+            Run("radius is bounded at one metre", () =>
+                Near(1f, new TerrainRadiusSelection(1f).Scroll(-1f).Radius));
+            Run("radius is bounded at ten metres", () =>
+                Near(10f, new TerrainRadiusSelection(10f).Scroll(1f).Radius));
+            Run("non-finite radius returns to vanilla", () =>
+            {
+                Near(2f, new TerrainRadiusSelection(float.NaN).Radius);
+                Near(2f, new TerrainRadiusSelection(float.PositiveInfinity).Radius);
+            });
+            Run("selection quantizes to half-metre steps", () =>
+                Near(2.5f, new TerrainRadiusSelection(2.31f).Radius));
+            Run("indicator scale is proportional to vanilla radius", () =>
+                Near(2f, new TerrainRadiusSelection(4f).ScaleFor(2f)));
+            Run("invalid indicator baseline fails closed to unit scale", () =>
+                Near(1f, new TerrainRadiusSelection(4f).ScaleFor(0f)));
+            Run("all active effect radii scale in lockstep", () =>
+            {
+                var scaled = new TerrainRadiusValues(2f, 1f, 2f).ScaleActive(true, true, true, 4f);
+                Near(4f, scaled.Level);
+                Near(2f, scaled.Smooth);
+                Near(4f, scaled.Paint);
+            });
+            Run("inactive effect radii are untouched", () =>
+            {
+                var scaled = new TerrainRadiusValues(2f, 3f, 4f).ScaleActive(true, false, false, 4f);
+                Near(4f, scaled.Level);
+                Near(3f, scaled.Smooth);
+                Near(4f, scaled.Paint);
+            });
+            Run("missing active radius leaves all values untouched", () =>
+            {
+                var values = new TerrainRadiusValues(2f, 3f, 4f);
+                var scaled = values.ScaleActive(false, false, false, 8f);
+                Near(2f, scaled.Level);
+                Near(3f, scaled.Smooth);
+                Near(4f, scaled.Paint);
+            });
         }
 
         private static void RuntimeSafetyTests()

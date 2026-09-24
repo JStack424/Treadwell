@@ -2,10 +2,12 @@
 
 **Build roads worth taking.**
 
-Treadwell is a focused, vanilla-plus Valheim mod that makes roads less tedious to build and more rewarding to use. Paved roads can be placed without repeatedly moving a stonecutter, while dirt paths and paved roads provide modest sprint bonuses.
+Treadwell is a focused, vanilla-plus Valheim mod that makes roads less tedious to build and more rewarding to use. Level Ground, Pathen, and Paved Road can use a larger or smaller synchronized terrain brush, paved roads can be placed without repeatedly moving a stonecutter, and dirt paths and paved roads provide modest sprint bonuses.
 
 ## Features
 
+- **Adjustable terrain brush:** with the hoe's exact vanilla **Level Ground**, **Pathen**, or **Paved Road** action selected, hold **Left Alt or Right Alt** and scroll up/down to change the brush radius in 0.5 m steps from 1–10 m. The visible `_GhostOnly` brush marker and the placed terrain operation use the same proportional scale.
+- **Input isolation:** Alt+scroll is consumed only for one of those three eligible hoe actions. Outside that chord, ordinary scrolling and placement rotation remain unchanged; Raise Ground, cultivator actions, removal mode, hammer pieces, and other or ambiguous terrain actions are excluded.
 - **Paved-road building:** place the vanilla paved-road terrain piece without a nearby stonecutter by default. Stone cost, placement rules, tool behavior, and every other piece remain vanilla.
 - **Dirt paths:** 10% faster sprinting and 10% less sprint-stamina use by default.
 - **Paved roads:** 20% faster sprinting and 20% less sprint-stamina use by default.
@@ -42,6 +44,8 @@ Treadwell creates exactly six settings in `BepInEx/config/com.jstack424.treadwel
 5. `Paved sprint speed bonus (%)` (default `20`)
 6. `Paved sprint stamina reduction (%)` (default `20`)
 
+Terrain radius intentionally adds no configuration setting. It begins at Valheim's 2 m default each time the plugin loads, is shared across the three eligible actions for that play session, and is adjusted only through Alt+scroll. The runtime requires one unique semantic match for each vanilla brush in the active tool's piece table and an exact 2 m vanilla baseline; that three-operation set is the hoe-table gate. Zero, missing, or ambiguous matches fail closed without changing the terrain effect or consuming scroll.
+
 The stonecutter option is read live. When enabled, Treadwell identifies exactly one semantic Paved Road entry in the active tool table: one root Piece with no additional child Pieces, one paved terrain operation (including child components), one attached crafting-station requirement, and one single-unit Stone resource requirement. The Paved Road entry's root, Piece, station, and localized display names are diagnostic evidence only, not identity gates; the expected Stone resource prefab is checked as part of the semantic shape. Treadwell then removes only that Piece's crafting-station reference locally. Turning the option off restores the exact captured object. It never changes the resource requirement, unlock knowledge, terrain checks, hoe behavior, repairs, or unrelated pieces and stations. Zero or multiple semantic matches fail closed and leave vanilla requirements intact; a one-time bounded BepInEx diagnostic lists the observed candidate shapes and names for troubleshooting.
 
 All percentages are constrained to `0–100` and are read live. The master switch installs or removes Treadwell's isolated Harmony patches.
@@ -50,13 +54,15 @@ If an earlier test build created the configuration file, BepInEx may preserve it
 
 ## Compatibility and safety
 
-Treadwell 0.1.2 uses a contract-based compatibility gate. Valheim's displayed version, Unity version, and loaded `assembly_valheim` MVID are logged as diagnostics, but they are not exact-version blockers. Client and dedicated-server assemblies, and compatible Valheim 1.0 patch releases, may differ in build identity while exposing the same APIs Treadwell needs.
+Treadwell 0.2.0 uses a contract-based compatibility gate. Valheim's displayed version, Unity version, and loaded `assembly_valheim` MVID are logged as diagnostics, but they are not exact-version blockers. Client and dedicated-server assemblies, and compatible Valheim 1.0 patch releases, may differ in build identity while exposing the same APIs Treadwell needs.
 
 Before installing anything, Treadwell verifies every Valheim method and overload it patches or calls, the matching Harmony prefix/postfix shapes, every accessed game field, the Unity component/property methods used for road discovery, and the expected piece-table, resource, enum, and terrain-paint contracts. Each required member must resolve to exactly one compatible signature. Missing or ambiguous members fail closed. Patch installation is transactional: if any Harmony patch fails, Treadwell removes every patch it installed, restores any owned Paved Road station override, and disables all features.
 
+Radius controls recognize only a unique three-piece vanilla semantic set in the active hoe table: a zero-cost level operation, a zero-cost Dirt paint operation, and the existing station-backed one-Stone Paved paint operation. Each must have exactly one root `Piece`, exactly one `TerrainModifier`, and Valheim's 2 m active radius. Treadwell scales the separate placement ghost's `_GhostOnly` geometry every frame. During `Player.PlacePiece` only, it proportionally changes the selected prefab's active level/smooth/paint radius fields, lets Valheim synchronously clone and apply that operation, and restores the exact original values in a Harmony finalizer. Conflicting third-party changes are never overwritten. Changing tools/actions, closing input, scene unload, plugin disable, or any input exception restores or clears transient visual state.
+
 The build remains compiled and independently checked against the pinned Valheim `1.0.14` / Steam build `25364309` reference bundle. Its hashes and MVID document and protect build provenance only; they are deliberately not compared with the player's runtime assembly. The pinned IL verifies that `PieceTable.UpdateAvailable` reads each table entry's root `Piece`; discovery additionally searches children for the terrain operation. Treadwell applies the uniquely selected semantic Paved Road mutation when Valheim enters place mode, before piece-table availability refreshes, and re-discovers it immediately before vanilla requirement checks. Its `Piece.m_craftingStation` reference is set to `null` without depending on guessed piece, localization, or station identifiers. Valheim's normal recipe-knowledge and resource checks still decide whether the piece is unlocked and affordable. Disable, configuration changes, scene unload, and plugin unload restore the captured original reference. DLC, free-build, stone-count, placement, consumption, stamina, durability, skill, and effect handling remain vanilla.
 
-The core road bonuses have been live-tested in Valheim. The recipe-level stonecutter removal and multiplayer behavior still require live validation.
+Treadwell 0.1.2's road bonuses and stonecutter-free Paved Road behavior have been live-tested successfully. The new 0.2.0 radius controls, their visual/effect lockstep, and multiplayer behavior still require live validation.
 
 ## Development
 

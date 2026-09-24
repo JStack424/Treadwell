@@ -113,12 +113,20 @@ namespace Treadwell
         private readonly ConfigEntry<float> _pavedStamina;
         private readonly RoadSurfaceTracker _surfaceTracker = new RoadSurfaceTracker(NaturalGapHoldSeconds);
         private readonly PavedRoadStationOverride<Piece, CraftingStation> _stationOverride;
+        private readonly Dictionary<Piece, TerrainBrushBinding> _terrainBrushes = new Dictionary<Piece, TerrainBrushBinding>();
+        private TerrainRadiusSelection _terrainRadius = new TerrainRadiusSelection(TerrainRadiusSelection.VanillaRadius);
+        private PieceTable _radiusPieceTable;
+        private GameObject _scaledPlacementGhost;
+        private Vector3 _scaledPlacementGhostBaseScale;
+        private Vector3 _scaledPlacementGhostAppliedScale;
+        private static int _suppressMouseWheelFrame = -1;
         private PieceTable _lastPieceTable;
         private bool _pavedSettingSubscribed;
         private bool _loggedStationRemoved;
         private bool _loggedStationAlreadyAbsent;
         private bool _loggedDiscoveryFailure;
         private bool _loggedStationConflict;
+        private bool _loggedRadiusDiscoveryFailure;
 
         internal RoadFeatureModule(
             ConfigEntry<bool> enabled,
@@ -162,6 +170,21 @@ namespace Treadwell
             CompatibilityGate.RequireMethod(failures, typeof(Player), "HaveRequirements", typeof(bool),
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
                 new[] { typeof(Piece), typeof(Player.RequirementMode) }, method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(Player), "UpdatePlacement", typeof(void),
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                new[] { typeof(bool), typeof(float) }, method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(Player), "PlacePiece", typeof(void),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(Piece), typeof(Vector3), typeof(Quaternion), typeof(bool), typeof(bool) }, method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(Player), "InPlaceMode", typeof(bool),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes, method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(Player), "IsDead", typeof(bool),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes, method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(PieceTable), "GetSelectedPiece", typeof(Piece),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes,
+                method => !method.IsStatic);
+            CompatibilityGate.RequireField(failures, typeof(Player), "m_placementGhost", typeof(GameObject),
+                BindingFlags.Instance | BindingFlags.NonPublic);
             CompatibilityGate.RequireField(failures, typeof(Piece), "m_name", typeof(string),
                 BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireField(failures, typeof(Piece), "m_craftingStation", typeof(CraftingStation),
@@ -174,6 +197,21 @@ namespace Treadwell
                 BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireField(failures, typeof(TerrainModifier), "m_paintType", typeof(TerrainModifier.PaintType),
                 BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(TerrainModifier), "m_level", typeof(bool),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(TerrainModifier), "m_levelRadius", typeof(float),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(TerrainModifier), "m_smooth", typeof(bool),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(TerrainModifier), "m_smoothRadius", typeof(float),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(TerrainModifier), "m_paintCleared", typeof(bool),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(TerrainModifier), "m_paintRadius", typeof(float),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireMethod(failures, typeof(TerrainModifier), "GetRadius", typeof(float),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes,
+                method => !method.IsStatic);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "GetRunSpeedFactor", typeof(float),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => method.IsFamily && method.IsVirtual);
@@ -207,6 +245,14 @@ namespace Treadwell
                 new[] { typeof(PieceTable) });
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerHaveRequirementsPrefix),
                 new[] { typeof(Piece) });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerUpdatePlacementPrefix),
+                new[] { typeof(Player), typeof(bool), typeof(GameObject) });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerPlacePiecePrefix),
+                new[] { typeof(Player), typeof(Piece), typeof(RadiusMutation).MakeByRefType() });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerPlacePieceFinalizer),
+                typeof(Exception), new[] { typeof(Exception), typeof(RadiusMutation) });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(ZInputGetMouseScrollWheelPrefix),
+                typeof(bool), new[] { typeof(float).MakeByRefType() });
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(ZNetSceneOnDestroyPrefix),
                 Type.EmptyTypes);
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(GetRunSpeedFactorPostfix),
@@ -229,6 +275,18 @@ namespace Treadwell
                 BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
             CompatibilityGate.RequireProperty(failures, typeof(Transform), "position", typeof(Vector3),
                 BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireProperty(failures, typeof(Transform), "localScale", typeof(Vector3),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: true);
+            CompatibilityGate.RequireMethod(failures, typeof(Transform), "Find", typeof(Transform),
+                BindingFlags.Instance | BindingFlags.Public, new[] { typeof(string) }, method => !method.IsStatic);
+            CompatibilityGate.RequireProperty(failures, typeof(Time), "frameCount", typeof(int),
+                BindingFlags.Static | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireMethod(failures, typeof(UnityEngine.Input), "GetKey", typeof(bool),
+                BindingFlags.Static | BindingFlags.Public, new[] { typeof(KeyCode) }, method => method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(ZInput), "GetMouseScrollWheel", typeof(float),
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes, method => method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(Hud), "IsPieceSelectionVisible", typeof(bool),
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes, method => method.IsStatic);
             CompatibilityGate.RequireProperty(failures, typeof(Time), "unscaledTime", typeof(float),
                 BindingFlags.Static | BindingFlags.Public, requireGetter: true, requireSetter: false);
             CompatibilityGate.RequireProperty(failures, typeof(UnityEngine.Object), "name", typeof(string),
@@ -294,6 +352,17 @@ namespace Treadwell
                     new[] { typeof(Piece), typeof(Player.RequirementMode) }),
                 prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerHaveRequirementsPrefix)));
             Harmony.Patch(
+                AccessTools.DeclaredMethod(typeof(Player), "UpdatePlacement", new[] { typeof(bool), typeof(float) }),
+                prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerUpdatePlacementPrefix)));
+            Harmony.Patch(
+                AccessTools.DeclaredMethod(typeof(Player), "PlacePiece",
+                    new[] { typeof(Piece), typeof(Vector3), typeof(Quaternion), typeof(bool), typeof(bool) }),
+                prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerPlacePiecePrefix)),
+                finalizer: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerPlacePieceFinalizer)));
+            Harmony.Patch(
+                AccessTools.DeclaredMethod(typeof(ZInput), "GetMouseScrollWheel", Type.EmptyTypes),
+                prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(ZInputGetMouseScrollWheelPrefix)));
+            Harmony.Patch(
                 AccessTools.DeclaredMethod(typeof(ZNetScene), "OnDestroy", Type.EmptyTypes),
                 prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(ZNetSceneOnDestroyPrefix)));
             Harmony.Patch(
@@ -325,6 +394,8 @@ namespace Treadwell
 
             try { RestorePavedRoadStation(); }
             catch (Exception exception) { failures.Add(exception); }
+            try { ResetTerrainRadiusRuntime(); }
+            catch (Exception exception) { failures.Add(exception); }
 
             // Clear every gameplay entrypoint before best-effort UI refresh/logging.
             _lastPieceTable = null;
@@ -346,12 +417,20 @@ namespace Treadwell
 
         private static void PlayerSetPlaceModePrefix(PieceTable __0)
         {
-            _activeModule?.RefreshPavedRoadStation(__0, reportMissingCandidate: true);
+            var module = _activeModule;
+            if (module == null) return;
+            module.RefreshTerrainRadiusBrushes(__0);
+            module.RefreshPavedRoadStation(__0, reportMissingCandidate: true);
         }
 
         private static void PieceTableUpdateAvailablePrefix(PieceTable __instance)
         {
-            _activeModule?.RefreshPavedRoadStation(__instance, reportMissingCandidate: false);
+            var module = _activeModule;
+            if (module == null) return;
+            var player = Player.m_localPlayer;
+            if (player != null && ReferenceEquals(player.GetBuildTool(), __instance))
+                module.RefreshTerrainRadiusBrushes(__instance);
+            module.RefreshPavedRoadStation(__instance, reportMissingCandidate: false);
         }
 
         private static void PlayerHaveRequirementsPrefix(Piece __0)
@@ -360,13 +439,214 @@ namespace Treadwell
             _activeModule?.RefreshCurrentBuildPieces();
         }
 
+        private static void PlayerUpdatePlacementPrefix(Player __instance, bool __0, GameObject ___m_placementGhost)
+        {
+            var module = _activeModule;
+            if (module == null) return;
+            try { module.UpdateTerrainRadiusInput(__instance, __0, ___m_placementGhost); }
+            catch (Exception exception)
+            {
+                module.ResetTerrainRadiusRuntime();
+                module.Log.LogError("Terrain-radius input failed and its runtime state was reset: " + exception);
+            }
+        }
+
+        private static void PlayerPlacePiecePrefix(Player __instance, Piece __0, ref RadiusMutation __state)
+        {
+            var module = _activeModule;
+            if (module == null) return;
+            try { __state = module.BeginRadiusMutation(__instance, __0); }
+            catch (Exception exception)
+            {
+                __state?.Restore(module.Log);
+                __state = null;
+                module.Log.LogError("Terrain-radius placement override failed before placement; vanilla radii were retained: " + exception);
+            }
+        }
+
+        private static Exception PlayerPlacePieceFinalizer(Exception __exception, RadiusMutation __state)
+        {
+            var module = _activeModule;
+            try { __state?.Restore(module?.Log); }
+            catch (Exception exception)
+            {
+                try { module?.Log.LogError("Terrain-radius placement cleanup failed: " + exception); }
+                catch { }
+            }
+            return __exception;
+        }
+
+        private static bool ZInputGetMouseScrollWheelPrefix(ref float __result)
+        {
+            if (_activeModule == null || Time.frameCount != _suppressMouseWheelFrame) return true;
+            __result = 0f;
+            return false;
+        }
+
         private static void ZNetSceneOnDestroyPrefix()
         {
             var module = _activeModule;
             if (module == null) return;
             module.RestorePavedRoadStation();
+            module.ResetTerrainRadiusRuntime();
             module._lastPieceTable = null;
         }
+
+        private void RefreshTerrainRadiusBrushes(PieceTable table)
+        {
+            RestoreScaledPlacementGhost();
+            _terrainBrushes.Clear();
+            _radiusPieceTable = table;
+            if (table == null) return;
+
+            var candidates = new Dictionary<TerrainBrushKind, List<PieceTableEntryInspection>>
+            {
+                [TerrainBrushKind.LevelGround] = new List<PieceTableEntryInspection>(),
+                [TerrainBrushKind.Pathen] = new List<PieceTableEntryInspection>(),
+                [TerrainBrushKind.PavedRoad] = new List<PieceTableEntryInspection>()
+            };
+            foreach (var entry in InspectPieceTable(table))
+            {
+                var kind = VanillaTerrainBrushClassifier.Classify(entry.BrushShape);
+                if (kind == TerrainBrushKind.None || entry.Modifiers.Length != 1 || entry.Modifiers[0] == null) continue;
+                var baseline = entry.Modifiers[0].GetRadius();
+                if (!Approximately(baseline, TerrainRadiusSelection.VanillaRadius)) continue;
+                candidates[kind].Add(entry);
+            }
+
+            if (candidates[TerrainBrushKind.LevelGround].Count != 1 ||
+                candidates[TerrainBrushKind.Pathen].Count != 1 ||
+                candidates[TerrainBrushKind.PavedRoad].Count != 1)
+            {
+                if (!_loggedRadiusDiscoveryFailure)
+                {
+                    _loggedRadiusDiscoveryFailure = true;
+                    Log.LogWarning("Terrain-radius controls were left disabled for this piece table because exact vanilla brush discovery was not unique " +
+                                   "(Level Ground=" + candidates[TerrainBrushKind.LevelGround].Count +
+                                   ", Pathen=" + candidates[TerrainBrushKind.Pathen].Count +
+                                   ", Paved Road=" + candidates[TerrainBrushKind.PavedRoad].Count + ").");
+                }
+                return;
+            }
+
+            foreach (var pair in candidates)
+            {
+                var entry = pair.Value[0];
+                _terrainBrushes.Add(entry.Piece,
+                    new TerrainBrushBinding(pair.Key, entry.Piece, entry.Modifiers[0], TerrainRadiusSelection.VanillaRadius));
+            }
+        }
+
+        private void UpdateTerrainRadiusInput(Player player, bool takeInput, GameObject placementGhost)
+        {
+            if (player == null || player != Player.m_localPlayer || !player.InPlaceMode() || player.IsDead() ||
+                !takeInput || Hud.IsPieceSelectionVisible())
+            {
+                RestoreScaledPlacementGhost();
+                return;
+            }
+
+            var table = player.GetBuildTool();
+            if (!ReferenceEquals(table, _radiusPieceTable)) RefreshTerrainRadiusBrushes(table);
+            var selected = table != null ? table.GetSelectedPiece() : null;
+            if (selected == null || !_terrainBrushes.TryGetValue(selected, out var binding))
+            {
+                RestoreScaledPlacementGhost();
+                return;
+            }
+
+            if (!SynchronizePlacementGhost(placementGhost, binding)) return;
+            if (!UnityEngine.Input.GetKey(KeyCode.LeftAlt) && !UnityEngine.Input.GetKey(KeyCode.RightAlt)) return;
+
+            var wheel = ZInput.GetMouseScrollWheel();
+            if (wheel == 0f) return;
+
+            _suppressMouseWheelFrame = Time.frameCount;
+            _terrainRadius = _terrainRadius.Scroll(wheel);
+            SynchronizePlacementGhost(placementGhost, binding);
+        }
+
+        private bool SynchronizePlacementGhost(GameObject placementGhost, TerrainBrushBinding binding)
+        {
+            if (placementGhost == null)
+            {
+                RestoreScaledPlacementGhost();
+                return false;
+            }
+
+            var marker = placementGhost.transform.Find("_GhostOnly");
+            if (marker == null)
+            {
+                RestoreScaledPlacementGhost();
+                return false;
+            }
+
+            var markerObject = marker.gameObject;
+            if (!ReferenceEquals(_scaledPlacementGhost, markerObject))
+            {
+                RestoreScaledPlacementGhost();
+                _scaledPlacementGhost = markerObject;
+                _scaledPlacementGhostBaseScale = marker.localScale;
+            }
+
+            var scale = _terrainRadius.ScaleFor(binding.VanillaRadius);
+            _scaledPlacementGhostAppliedScale = new Vector3(
+                _scaledPlacementGhostBaseScale.x * scale,
+                _scaledPlacementGhostBaseScale.y,
+                _scaledPlacementGhostBaseScale.z * scale);
+            marker.localScale = _scaledPlacementGhostAppliedScale;
+            binding.IndicatorSynchronized = true;
+            return true;
+        }
+
+        private RadiusMutation BeginRadiusMutation(Player player, Piece piece)
+        {
+            if (player == null || player != Player.m_localPlayer || !player.InPlaceMode() || player.IsDead() || piece == null)
+                return null;
+            var table = player.GetBuildTool();
+            if (!ReferenceEquals(table, _radiusPieceTable)) RefreshTerrainRadiusBrushes(table);
+            if (table == null || !ReferenceEquals(table.GetSelectedPiece(), piece)) return null;
+            if (!_terrainBrushes.TryGetValue(piece, out var binding) || !binding.IndicatorSynchronized ||
+                _scaledPlacementGhost == null ||
+                !Approximately(_scaledPlacementGhost.transform.localScale, _scaledPlacementGhostAppliedScale))
+            {
+                return null;
+            }
+            if (Approximately(_terrainRadius.Radius, binding.VanillaRadius)) return null;
+
+            var mutation = new RadiusMutation(binding.Modifier);
+            mutation.Apply(_terrainRadius.Radius);
+            return mutation;
+        }
+
+        private void ResetTerrainRadiusRuntime()
+        {
+            RestoreScaledPlacementGhost();
+            foreach (var binding in _terrainBrushes.Values) binding.IndicatorSynchronized = false;
+            _terrainBrushes.Clear();
+            _radiusPieceTable = null;
+            _suppressMouseWheelFrame = -1;
+        }
+
+        private void RestoreScaledPlacementGhost()
+        {
+            if (_scaledPlacementGhost != null)
+            {
+                var transform = _scaledPlacementGhost.transform;
+                if (Approximately(transform.localScale, _scaledPlacementGhostAppliedScale))
+                    transform.localScale = _scaledPlacementGhostBaseScale;
+            }
+            foreach (var binding in _terrainBrushes.Values) binding.IndicatorSynchronized = false;
+            _scaledPlacementGhost = null;
+            _scaledPlacementGhostBaseScale = default(Vector3);
+            _scaledPlacementGhostAppliedScale = default(Vector3);
+        }
+
+        private static bool Approximately(float left, float right)
+            => !float.IsNaN(left) && !float.IsNaN(right) && Math.Abs(left - right) <= 0.0001f;
+
+        private static bool Approximately(Vector3 left, Vector3 right)
+            => Approximately(left.x, right.x) && Approximately(left.y, right.y) && Approximately(left.z, right.z);
 
         private void OnPavedRoadSettingChanged(object sender, EventArgs eventArgs)
         {
@@ -505,16 +785,31 @@ namespace Treadwell
                     }
                 }
 
+                var hasStationRequirement = piece != null &&
+                    (piece.m_craftingStation != null || _stationOverride.IsAppliedTo(piece));
                 var shape = new PavedRoadCandidateShape(
                     pieces.Length,
                     piece != null,
                     modifiers.Length,
                     pavedModifierCount,
-                    piece != null && (piece.m_craftingStation != null || _stationOverride.IsAppliedTo(piece)),
+                    hasStationRequirement,
                     resourceCount,
                     singleUnitResourceCount,
                     singleUnitStoneResourceCount);
-                entries.Add(new PieceTableEntryInspection(pieceObject, pieces, modifiers, shape));
+                var soleModifier = modifiers.Length == 1 ? modifiers[0] : null;
+                var brushShape = new TerrainBrushShape(
+                    pieces.Length,
+                    piece != null,
+                    modifiers.Length,
+                    soleModifier != null && soleModifier.m_level,
+                    soleModifier != null && soleModifier.m_smooth,
+                    soleModifier != null && soleModifier.m_paintCleared,
+                    soleModifier != null ? (int)soleModifier.m_paintType : -1,
+                    hasStationRequirement,
+                    resourceCount,
+                    singleUnitResourceCount,
+                    singleUnitStoneResourceCount);
+                entries.Add(new PieceTableEntryInspection(pieceObject, pieces, modifiers, shape, brushShape));
             }
             return entries;
         }
@@ -573,24 +868,111 @@ namespace Treadwell
             return safe.Length <= 64 ? safe : safe.Substring(0, 64) + "...";
         }
 
+        private sealed class TerrainBrushBinding
+        {
+            internal TerrainBrushBinding(TerrainBrushKind kind, Piece piece, TerrainModifier modifier, float vanillaRadius)
+            {
+                Kind = kind;
+                Piece = piece;
+                Modifier = modifier;
+                VanillaRadius = vanillaRadius;
+            }
+
+            internal TerrainBrushKind Kind { get; }
+            internal Piece Piece { get; }
+            internal TerrainModifier Modifier { get; }
+            internal float VanillaRadius { get; }
+            internal bool IndicatorSynchronized { get; set; }
+        }
+
+        private sealed class RadiusMutation
+        {
+            private readonly TerrainModifier _modifier;
+            private readonly bool _levelActive;
+            private readonly bool _smoothActive;
+            private readonly bool _paintActive;
+            private readonly TerrainRadiusValues _original;
+            private TerrainRadiusValues _applied;
+            private bool _isApplied;
+
+            internal RadiusMutation(TerrainModifier modifier)
+            {
+                _modifier = modifier ?? throw new ArgumentNullException(nameof(modifier));
+                _levelActive = modifier.m_level;
+                _smoothActive = modifier.m_smooth;
+                _paintActive = modifier.m_paintCleared;
+                _original = new TerrainRadiusValues(modifier.m_levelRadius, modifier.m_smoothRadius, modifier.m_paintRadius);
+            }
+
+            internal void Apply(float targetRadius)
+            {
+                _applied = _original.ScaleActive(_levelActive, _smoothActive, _paintActive, targetRadius);
+                try
+                {
+                    if (_levelActive) _modifier.m_levelRadius = _applied.Level;
+                    if (_smoothActive) _modifier.m_smoothRadius = _applied.Smooth;
+                    if (_paintActive) _modifier.m_paintRadius = _applied.Paint;
+                    _isApplied = true;
+                }
+                catch
+                {
+                    Restore(null);
+                    throw;
+                }
+            }
+
+            internal void Restore(ManualLogSource log)
+            {
+                if (!_isApplied &&
+                    (!_levelActive || !Approximately(_modifier.m_levelRadius, _applied.Level)) &&
+                    (!_smoothActive || !Approximately(_modifier.m_smoothRadius, _applied.Smooth)) &&
+                    (!_paintActive || !Approximately(_modifier.m_paintRadius, _applied.Paint)))
+                {
+                    return;
+                }
+
+                var conflict = false;
+                if (_levelActive)
+                {
+                    if (Approximately(_modifier.m_levelRadius, _applied.Level)) _modifier.m_levelRadius = _original.Level;
+                    else conflict = true;
+                }
+                if (_smoothActive)
+                {
+                    if (Approximately(_modifier.m_smoothRadius, _applied.Smooth)) _modifier.m_smoothRadius = _original.Smooth;
+                    else conflict = true;
+                }
+                if (_paintActive)
+                {
+                    if (Approximately(_modifier.m_paintRadius, _applied.Paint)) _modifier.m_paintRadius = _original.Paint;
+                    else conflict = true;
+                }
+                _isApplied = false;
+                if (conflict) log?.LogWarning("A terrain-radius field changed during placement; Treadwell left that conflicting field untouched.");
+            }
+        }
+
         private sealed class PieceTableEntryInspection
         {
             internal PieceTableEntryInspection(
                 GameObject root,
                 Piece[] pieces,
                 TerrainModifier[] modifiers,
-                PavedRoadCandidateShape shape)
+                PavedRoadCandidateShape shape,
+                TerrainBrushShape brushShape)
             {
                 Root = root;
                 Pieces = pieces;
                 Modifiers = modifiers;
                 Shape = shape;
+                BrushShape = brushShape;
             }
 
             internal GameObject Root { get; }
             internal Piece[] Pieces { get; }
             internal TerrainModifier[] Modifiers { get; }
             internal PavedRoadCandidateShape Shape { get; }
+            internal TerrainBrushShape BrushShape { get; }
             internal Piece Piece => Pieces.Length == 1 ? Pieces[0] : null;
 
             internal string Describe()

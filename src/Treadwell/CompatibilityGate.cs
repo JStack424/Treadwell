@@ -113,7 +113,17 @@ namespace Treadwell
             string name,
             Type[] parameterTypes)
         {
-            RequireMethod(failures, declaringType, name, typeof(void),
+            RequirePatchMethod(failures, declaringType, name, typeof(void), parameterTypes);
+        }
+
+        internal static void RequirePatchMethod(
+            ICollection<string> failures,
+            Type declaringType,
+            string name,
+            Type returnType,
+            Type[] parameterTypes)
+        {
+            RequireMethod(failures, declaringType, name, returnType,
                 BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
                 parameterTypes, method => method.IsStatic);
         }

@@ -85,14 +85,29 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             self.assertIn(marker, gate)
         for patch in (
             "PlayerSetPlaceModePrefix", "PieceTableUpdateAvailablePrefix", "PlayerHaveRequirementsPrefix",
-            "ZNetSceneOnDestroyPrefix", "GetRunSpeedFactorPostfix", "ModifyRunStaminaDrainPostfix",
+            "PlayerUpdatePlacementPrefix", "PlayerPlacePiecePrefix", "PlayerPlacePieceFinalizer",
+            "ZInputGetMouseScrollWheelPrefix", "ZNetSceneOnDestroyPrefix", "GetRunSpeedFactorPostfix",
+            "ModifyRunStaminaDrainPostfix",
         ):
             self.assertIn("RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(" + patch + ")", module)
+        self.assertIn(
+            "RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(ZInputGetMouseScrollWheelPrefix),\n"
+            "                typeof(bool), new[] { typeof(float).MakeByRefType() });",
+            module,
+        )
+        self.assertIn(
+            "RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerPlacePieceFinalizer),\n"
+            "                typeof(Exception), new[] { typeof(Exception), typeof(RadiusMutation) });",
+            module,
+        )
         for runtime_contract in (
             'typeof(UnityEngine.Object), "name"', 'typeof(Color), "r"', 'typeof(Color), "g"',
             'typeof(Color), "b"', 'typeof(Color), "a"', 'typeof(UnityEngine.Object), "op_Equality"',
             'typeof(UnityEngine.Object), "op_Inequality"', 'typeof(Harmony), "Patch"',
             'typeof(Harmony), "UnpatchSelf"', 'typeof(AccessTools), "DeclaredMethod"',
+            'typeof(Transform), "localScale"', 'typeof(Transform), "Find"',
+            'typeof(Time), "frameCount"', 'typeof(UnityEngine.Input), "GetKey"',
+            'typeof(ZInput), "GetMouseScrollWheel"', 'typeof(Hud), "IsPieceSelectionVisible"',
         ):
             self.assertIn(runtime_contract, module)
         self.assertIn("TransactionalInstall.Run", module)
@@ -194,6 +209,39 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             self.assertIn(diagnostic, module)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
 
+    def test_radius_controls_are_narrow_synchronized_and_transactional(self):
+        module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
+        core = (ROOT / "src" / f"{IDENTIFIER}.Core" / "TerrainRadiusLogic.cs").read_text()
+        tests = (ROOT / "tests" / f"{IDENTIFIER}.Tests" / "Program.cs").read_text()
+        for marker in (
+            "VanillaTerrainBrushClassifier.Classify", "TerrainRadiusSelection.VanillaRadius",
+            "TerrainBrushKind.LevelGround", "TerrainBrushKind.Pathen", "TerrainBrushKind.PavedRoad",
+            "KeyCode.LeftAlt", "KeyCode.RightAlt", "ZInput.GetMouseScrollWheel()",
+            "_suppressMouseWheelFrame = Time.frameCount", 'transform.Find("_GhostOnly")',
+            "marker.localScale = _scaledPlacementGhostAppliedScale", "mutation.Apply(_terrainRadius.Radius)",
+            "__state?.Restore", "ResetTerrainRadiusRuntime", "Approximately(baseline, TerrainRadiusSelection.VanillaRadius)",
+        ):
+            self.assertIn(marker, module)
+        self.assertIn("MinimumRadius = 1f", core)
+        self.assertIn("MaximumRadius = 10f", core)
+        self.assertIn("Step = 0.5f", core)
+        self.assertIn("shape.Level", core)
+        self.assertIn("shape.PaintType == DirtPaintType", core)
+        self.assertIn("shape.PaintType == PavedPaintType", core)
+        self.assertIn("shape.ResourceRequirementCount == 0", core)
+        self.assertIn("shape.SingleUnitStoneResourceRequirementCount == 1", core)
+        wheel_read = module.index("var wheel = ZInput.GetMouseScrollWheel();")
+        zero_wheel = module.index("if (wheel == 0f) return;", wheel_read)
+        wheel_suppression = module.index("_suppressMouseWheelFrame = Time.frameCount;", wheel_read)
+        self.assertLess(zero_wheel, wheel_suppression)
+        for exclusion in (
+            "Raise Ground is excluded", "cultivator paint is excluded", "terrain reset paint is excluded",
+            "ordinary hammer piece is excluded", "paved paint without vanilla recipe shape is excluded",
+            "all active effect radii scale in lockstep", "inactive effect radii are untouched",
+        ):
+            self.assertIn(exclusion, tests)
+        self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
+
     def test_pinned_provenance_is_checked_offline_and_runtime_contract_is_shape_based(self):
         build = (ROOT / "scripts" / "build.sh").read_text()
         compatibility_test = (COMPAT_PROJECT.parent / "Program.cs").read_text()
@@ -202,11 +250,13 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn(f"tests/$identifier.Compatibility.Tests/$identifier.Compatibility.Tests.csproj", build)
         for marker in (
             "ExpectedSha256", "ExpectedMvid", "PieceTable", "UpdateAvailable", "ZNetScene", "OnDestroy",
-            "SetPlaceMode", "GetBuildTool", "UpdateAvailablePiecesList", "HaveRequirements", "UpdatePlacement",
+            "SetPlaceMode", "GetBuildTool", "UpdateAvailablePiecesList", "HaveRequirements", "UpdatePlacement", "PlacePiece",
+            "InPlaceMode", "IsDead", "GetSelectedPiece", "GetRadius",
             "UpdateWalking", "CheckRun", "GetRunSpeedFactor", "ModifyRunStaminaDrain", "UseStamina",
             "CurrentGameVersion", "GetPaintMask", "m_character",
-            "m_localPlayer", "m_pieces", "m_craftingStation", "m_resources", "m_resItem", "m_amount",
-            "m_paintType", "GetComponent", "m_paintMaskDirt", "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType",
+            "m_localPlayer", "m_placementGhost", "m_pieces", "m_craftingStation", "m_resources", "m_resItem", "m_amount",
+            "m_paintType", "m_levelRadius", "m_smoothRadius", "m_paintRadius", "GetComponent",
+            "m_paintMaskDirt", "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType", "Instantiate",
         ):
             self.assertIn(marker, compatibility_test)
         for marker in (
