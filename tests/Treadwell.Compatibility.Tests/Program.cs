@@ -38,6 +38,7 @@ namespace Treadwell.Compatibility.Tests
             contract.Method("Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
             contract.Method("Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" }, MethodAttributes.Public);
             contract.Method("Player", "UpdatePlacement", "System.Void", new[] { "System.Boolean", "System.Single" }, MethodAttributes.Private);
+            contract.Method("GameCamera", "UpdateCamera", "System.Void", new[] { "System.Single" }, MethodAttributes.Private);
             contract.Method("Player", "PlacePiece", "System.Void",
                 new[] { "Piece", "UnityEngine.Vector3", "UnityEngine.Quaternion", "System.Boolean", "System.Boolean" }, MethodAttributes.Public);
             contract.Method("Player", "InPlaceMode", "System.Boolean", Array.Empty<string>(), MethodAttributes.Public | MethodAttributes.Virtual);
@@ -104,6 +105,9 @@ namespace Treadwell.Compatibility.Tests
                 "PieceTable", "UpdateAvailable", "System.Void",
                 new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" },
                 "UnityEngine.GameObject", "GetComponent", "Piece");
+            contract.ExternalMethodCallCount(
+                "GameCamera", "UpdateCamera", "System.Void", new[] { "System.Single" },
+                "ZInput", "GetMouseScrollWheel", "System.Single", Array.Empty<string>(), 2);
             contract.MethodCallCount(
                 "Player", "PlacePiece", "System.Void",
                 new[] { "Piece", "UnityEngine.Vector3", "UnityEngine.Quaternion", "System.Boolean", "System.Boolean" },
@@ -152,7 +156,7 @@ namespace Treadwell.Compatibility.Tests
                 MethodAttributes.Public | MethodAttributes.Static);
             utilsContract.Method("ZInput", "GetKey", "System.Boolean",
                 new[] { "UnityEngine.KeyCode", "System.Boolean" }, MethodAttributes.Public | MethodAttributes.Static);
-            Console.WriteLine(_passed + "/74 compatibility contract checks passed");
+            Console.WriteLine(_passed + "/76 compatibility contract checks passed");
             return 0;
         }
 
@@ -408,6 +412,35 @@ namespace Treadwell.Compatibility.Tests
                 var field = FindFieldHandle(fieldType, fieldName, "CraftingStation");
                 RequireInstructionToken(source, new byte[] { 0x7b }, MetadataTokens.GetToken(field),
                     sourceType + "." + sourceName + " reads " + fieldType + "." + fieldName);
+            }
+
+            internal void ExternalMethodCallCount(
+                string sourceType, string sourceName, string sourceReturn, string[] sourceParameters,
+                string targetType, string targetName, string targetReturn, string[] targetParameters,
+                int expectedCount)
+            {
+                var source = FindMethodHandle(sourceType, sourceName, sourceReturn, sourceParameters);
+                var matches = _reader.MemberReferences.Where(handle =>
+                {
+                    var member = _reader.GetMemberReference(handle);
+                    if (_reader.GetString(member.Name) != targetName || member.Parent.Kind != HandleKind.TypeReference)
+                        return false;
+                    var parent = _reader.GetTypeReference((TypeReferenceHandle)member.Parent);
+                    var parentNamespace = _reader.GetString(parent.Namespace);
+                    var parentName = (string.IsNullOrEmpty(parentNamespace) ? "" : parentNamespace + ".") + _reader.GetString(parent.Name);
+                    var signature = member.DecodeMethodSignature(_provider, null);
+                    return parentName == targetType && signature.ReturnType == targetReturn &&
+                           signature.ParameterTypes.SequenceEqual(targetParameters);
+                }).ToArray();
+                if (matches.Length != 1)
+                    throw new InvalidOperationException(targetType + "." + targetName + " reference shape mismatch: " + matches.Length);
+                var count = FindCallOffsets(MethodIl(source), MetadataTokens.GetToken(matches[0])).Count;
+                if (count != expectedCount)
+                    throw new InvalidOperationException(sourceType + "." + sourceName + " call count for external " +
+                                                        targetType + "." + targetName + " mismatch: " + count);
+                _passed++;
+                Console.WriteLine("PASS IL " + sourceType + "." + sourceName + " calls external " +
+                                  targetType + "." + targetName + " exactly " + expectedCount + " times");
             }
 
             internal void MethodCallCount(

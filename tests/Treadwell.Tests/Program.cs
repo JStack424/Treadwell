@@ -388,9 +388,9 @@ namespace Treadwell.Tests
             Run("cultivator paint is excluded", () =>
                 Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
                     "path_v2", "$piece_path", paint: true, paintType: 1))));
-            Run("wrong prefab identity is excluded", () =>
-                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
-                    "modded_path", "$piece_path", paint: true, paintType: 0))));
+            Run("Pathen live shape tolerates Valheim prefab object renaming", () =>
+                Equal(TerrainBrushKind.Pathen, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "path", "$piece_path", paint: true, paintType: 0))));
             Run("wrong localized identity is excluded", () =>
                 Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
                     "path_v2", "$piece_modded", paint: true, paintType: 0))));
@@ -417,11 +417,11 @@ namespace Treadwell.Tests
                     "paved_road_v2", "$piece_pavedroad", smooth: true, paint: true, paintType: 2))));
 
             Run("Level Ground radius begins at vanilla three metres", () =>
-                Near(3f, new TerrainRadiusSelection(3f).Radius));
+                Near(3f, new TerrainRadiusSelection(TerrainBrushKind.LevelGround, 3f).Radius));
             Run("Pathen radius begins at vanilla two metres", () =>
-                Near(2f, new TerrainRadiusSelection(2f).Radius));
+                Near(2f, new TerrainRadiusSelection(TerrainBrushKind.Pathen, 2f).Radius));
             Run("Paved Road radius begins at vanilla three metres", () =>
-                Near(3f, new TerrainRadiusSelection(3f).Radius));
+                Near(3f, new TerrainRadiusSelection(TerrainBrushKind.PavedRoad, 3f).Radius));
             Run("scroll up increases radius by half a metre", () =>
                 Near(3.5f, new TerrainRadiusSelection(3f).Scroll(1f).Radius));
             Run("scroll down decreases radius by half a metre", () =>
@@ -430,8 +430,14 @@ namespace Treadwell.Tests
                 Near(3f, new TerrainRadiusSelection(3f).Scroll(0f).Radius));
             Run("radius is bounded at one metre", () =>
                 Near(1f, new TerrainRadiusSelection(1f).Scroll(-1f).Radius));
-            Run("radius is bounded at ten metres", () =>
-                Near(10f, new TerrainRadiusSelection(10f).Scroll(1f).Radius));
+            Run("Level Ground radius is bounded at eight metres", () =>
+                Near(8f, new TerrainRadiusSelection(TerrainBrushKind.LevelGround, 8f).Scroll(1f).Radius));
+            Run("Level Ground constructor clamps oversized values to eight metres", () =>
+                Near(8f, new TerrainRadiusSelection(TerrainBrushKind.LevelGround, 10f).Radius));
+            Run("Pathen radius remains bounded at ten metres", () =>
+                Near(10f, new TerrainRadiusSelection(TerrainBrushKind.Pathen, 10f).Scroll(1f).Radius));
+            Run("Paved Road radius remains bounded at ten metres", () =>
+                Near(10f, new TerrainRadiusSelection(TerrainBrushKind.PavedRoad, 10f).Scroll(1f).Radius));
             Run("non-finite radius returns to safe vanilla fallback", () =>
             {
                 Near(2f, new TerrainRadiusSelection(float.NaN).Radius);
@@ -470,6 +476,40 @@ namespace Treadwell.Tests
                 Near(7f, scaled.Smooth);
                 Near(4f, scaled.Paint);
             });
+            Run("Pathen indicator and paint effect share the same proportional scale", () =>
+            {
+                var radius = new TerrainRadiusSelection(TerrainBrushKind.Pathen, 5f);
+                Near(2.5f, radius.ScaleFor(2f));
+                var scaled = new TerrainRadiusValues(9f, 8f, 7f, 2f)
+                    .ScaleActive(false, false, false, true, radius.Radius);
+                Near(5f, scaled.Paint);
+            });
+            Run("camera wheel is suppressed for successful Alt hoe adjustments", () =>
+            {
+                var radius = new TerrainRadiusSelection(TerrainBrushKind.Pathen, 2f);
+                Near(2.5f, radius.Scroll(1f).Radius);
+                Equal(true, CameraWheelRouting.ShouldSuppressZoom(true, true, false, true, true, false));
+            });
+            Run("camera wheel remains suppressed at radius bounds and no-op adjustments", () =>
+            {
+                var radius = new TerrainRadiusSelection(TerrainBrushKind.LevelGround, 8f);
+                Near(8f, radius.Scroll(1f).Radius);
+                Equal(true, CameraWheelRouting.ShouldSuppressZoom(true, true, false, true, true, false));
+            });
+            Run("camera wheel remains suppressed for ineligible vanilla hoe actions", () =>
+            {
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "raise_v2", "$piece_raise", raise: true, paint: false, paintType: 0)));
+                Equal(true, CameraWheelRouting.ShouldSuppressZoom(true, true, false, true, true, false));
+            });
+            Run("camera wheel is not suppressed without Alt", () =>
+                Equal(false, CameraWheelRouting.ShouldSuppressZoom(true, true, false, true, false, false)));
+            Run("camera wheel is not suppressed for another tool", () =>
+                Equal(false, CameraWheelRouting.ShouldSuppressZoom(true, true, false, false, true, false)));
+            Run("camera wheel is not suppressed while the build selection UI is open", () =>
+                Equal(false, CameraWheelRouting.ShouldSuppressZoom(true, true, false, true, true, true)));
+            Run("camera wheel is not suppressed outside place mode", () =>
+                Equal(false, CameraWheelRouting.ShouldSuppressZoom(true, false, false, true, true, false)));
             Run("missing active radius leaves all values untouched", () =>
             {
                 var values = new TerrainRadiusValues(2f, 3f, 4f, 5f);

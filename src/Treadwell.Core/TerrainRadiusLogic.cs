@@ -83,21 +83,21 @@ namespace Treadwell.Core
             if (shape.Level || shape.Raise || !shape.PaintCleared)
                 return TerrainBrushKind.None;
 
-            if (MatchesIdentity(shape, "mud_road_v2", "$piece_levelground") &&
+            if (MatchesPieceIdentity(shape, "$piece_levelground") &&
                 shape.Smooth && shape.PaintType == DirtPaintType &&
                 !shape.HasStationRequirement && shape.ResourceRequirementCount == 0)
             {
                 return TerrainBrushKind.LevelGround;
             }
 
-            if (MatchesIdentity(shape, "path_v2", "$piece_path") &&
+            if (MatchesPieceIdentity(shape, "$piece_path") &&
                 !shape.Smooth && shape.PaintType == DirtPaintType &&
                 !shape.HasStationRequirement && shape.ResourceRequirementCount == 0)
             {
                 return TerrainBrushKind.Pathen;
             }
 
-            if (MatchesIdentity(shape, "paved_road_v2", "$piece_pavedroad") &&
+            if (MatchesPieceIdentity(shape, "$piece_pavedroad") &&
                 shape.Smooth && shape.PaintType == PavedPaintType &&
                 shape.HasStationRequirement && shape.ResourceRequirementCount == 1 &&
                 shape.SingleUnitResourceRequirementCount == 1 &&
@@ -109,10 +109,12 @@ namespace Treadwell.Core
             return TerrainBrushKind.None;
         }
 
-        private static bool MatchesIdentity(TerrainBrushShape shape, string prefabName, string pieceName)
+        private static bool MatchesPieceIdentity(TerrainBrushShape shape, string pieceName)
         {
-            return string.Equals(shape.PrefabName, prefabName, StringComparison.Ordinal) &&
-                   string.Equals(shape.PieceName, pieceName, StringComparison.Ordinal);
+            // The active vanilla table is authoritative. Valheim has changed internal
+            // prefab object names while retaining the localized action identity and
+            // semantic TerrainOp/recipe shape, so prefab names are diagnostic only.
+            return string.Equals(shape.PieceName, pieceName, StringComparison.Ordinal);
         }
     }
 
@@ -120,19 +122,39 @@ namespace Treadwell.Core
     {
         public const float MinimumRadius = 1f;
         public const float MaximumRadius = 10f;
+        public const float LevelGroundMaximumRadius = 8f;
         public const float Step = 0.5f;
 
+        private readonly float _maximumRadius;
+
         public TerrainRadiusSelection(float radius)
+            : this(radius, MaximumRadius)
         {
-            Radius = ClampAndQuantize(radius, 2f);
+        }
+
+        public TerrainRadiusSelection(TerrainBrushKind kind, float radius)
+            : this(radius, MaximumFor(kind))
+        {
+        }
+
+        private TerrainRadiusSelection(float radius, float maximumRadius)
+        {
+            _maximumRadius = maximumRadius;
+            Radius = ClampAndQuantize(radius, 2f, maximumRadius);
         }
 
         public float Radius { get; }
+        public float Maximum => _maximumRadius;
 
         public TerrainRadiusSelection Scroll(float wheelDelta)
         {
             if (float.IsNaN(wheelDelta) || wheelDelta == 0f) return this;
-            return new TerrainRadiusSelection(Radius + (wheelDelta > 0f ? Step : -Step));
+            return new TerrainRadiusSelection(Radius + (wheelDelta > 0f ? Step : -Step), _maximumRadius);
+        }
+
+        public static float MaximumFor(TerrainBrushKind kind)
+        {
+            return kind == TerrainBrushKind.LevelGround ? LevelGroundMaximumRadius : MaximumRadius;
         }
 
         public float ScaleFor(float vanillaRadius)
@@ -141,10 +163,10 @@ namespace Treadwell.Core
             return Radius / vanillaRadius;
         }
 
-        private static float ClampAndQuantize(float value, float fallback)
+        private static float ClampAndQuantize(float value, float fallback, float maximumRadius)
         {
             if (float.IsNaN(value) || float.IsInfinity(value)) value = fallback;
-            var clamped = Math.Max(MinimumRadius, Math.Min(MaximumRadius, value));
+            var clamped = Math.Max(MinimumRadius, Math.Min(maximumRadius, value));
             var steps = (float)Math.Round((clamped - MinimumRadius) / Step, MidpointRounding.AwayFromZero);
             return MinimumRadius + steps * Step;
         }
@@ -152,6 +174,21 @@ namespace Treadwell.Core
         private static bool IsFinitePositive(float value)
         {
             return !float.IsNaN(value) && !float.IsInfinity(value) && value > 0f;
+        }
+    }
+
+    public static class CameraWheelRouting
+    {
+        public static bool ShouldSuppressZoom(
+            bool isLocalPlayer,
+            bool inPlaceMode,
+            bool isDead,
+            bool isVanillaHoeTable,
+            bool altHeld,
+            bool pieceSelectionVisible)
+        {
+            return isLocalPlayer && inPlaceMode && !isDead && isVanillaHoeTable &&
+                   altHeld && !pieceSelectionVisible;
         }
     }
 

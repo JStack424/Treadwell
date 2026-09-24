@@ -117,9 +117,9 @@ namespace Treadwell
         private readonly Dictionary<TerrainBrushKind, TerrainRadiusSelection> _terrainRadii =
             new Dictionary<TerrainBrushKind, TerrainRadiusSelection>
             {
-                [TerrainBrushKind.LevelGround] = new TerrainRadiusSelection(3f),
-                [TerrainBrushKind.Pathen] = new TerrainRadiusSelection(2f),
-                [TerrainBrushKind.PavedRoad] = new TerrainRadiusSelection(3f)
+                [TerrainBrushKind.LevelGround] = new TerrainRadiusSelection(TerrainBrushKind.LevelGround, 3f),
+                [TerrainBrushKind.Pathen] = new TerrainRadiusSelection(TerrainBrushKind.Pathen, 2f),
+                [TerrainBrushKind.PavedRoad] = new TerrainRadiusSelection(TerrainBrushKind.PavedRoad, 3f)
             };
         private PieceTable _radiusPieceTable;
         private int _radiusValidationFrame = -1;
@@ -127,7 +127,7 @@ namespace Treadwell
         private GameObject _scaledPlacementGhost;
         private Vector3 _scaledPlacementGhostBaseScale;
         private Vector3 _scaledPlacementGhostAppliedScale;
-        private static int _suppressMouseWheelFrame = -1;
+        private static int _suppressCameraMouseWheelDepth;
         private PieceTable _lastPieceTable;
         private bool _pavedSettingSubscribed;
         private bool _loggedStationRemoved;
@@ -181,6 +181,9 @@ namespace Treadwell
             CompatibilityGate.RequireMethod(failures, typeof(Player), "UpdatePlacement", typeof(void),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
                 new[] { typeof(bool), typeof(float) }, method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(GameCamera), "UpdateCamera", typeof(void),
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                new[] { typeof(float) }, method => !method.IsStatic);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "PlacePiece", typeof(void),
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
                 new[] { typeof(Piece), typeof(Vector3), typeof(Quaternion), typeof(bool), typeof(bool) }, method => !method.IsStatic);
@@ -272,6 +275,10 @@ namespace Treadwell
                 new[] { typeof(Player), typeof(Piece), typeof(RadiusMutation).MakeByRefType() });
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerPlacePieceFinalizer),
                 typeof(Exception), new[] { typeof(Exception), typeof(RadiusMutation) });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(GameCameraUpdateCameraPrefix),
+                new[] { typeof(bool).MakeByRefType() });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(GameCameraUpdateCameraFinalizer),
+                typeof(Exception), new[] { typeof(Exception), typeof(bool) });
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(ZInputGetMouseScrollWheelPrefix),
                 typeof(bool), new[] { typeof(float).MakeByRefType() });
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(ZNetSceneOnDestroyPrefix),
@@ -383,6 +390,10 @@ namespace Treadwell
                     new[] { typeof(Piece), typeof(Vector3), typeof(Quaternion), typeof(bool), typeof(bool) }),
                 prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerPlacePiecePrefix)),
                 finalizer: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerPlacePieceFinalizer)));
+            Harmony.Patch(
+                AccessTools.DeclaredMethod(typeof(GameCamera), "UpdateCamera", new[] { typeof(float) }),
+                prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(GameCameraUpdateCameraPrefix)),
+                finalizer: new HarmonyMethod(typeof(RoadFeatureModule), nameof(GameCameraUpdateCameraFinalizer)));
             Harmony.Patch(
                 AccessTools.DeclaredMethod(typeof(ZInput), "GetMouseScrollWheel", Type.EmptyTypes),
                 prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(ZInputGetMouseScrollWheelPrefix)));
@@ -500,11 +511,48 @@ namespace Treadwell
             return __exception;
         }
 
+        private static void GameCameraUpdateCameraPrefix(ref bool __state)
+        {
+            __state = false;
+            var module = _activeModule;
+            if (module == null) return;
+            try
+            {
+                if (!module.ShouldSuppressCameraZoom()) return;
+                _suppressCameraMouseWheelDepth++;
+                __state = true;
+            }
+            catch (Exception exception)
+            {
+                module.Log.LogError("Camera-wheel routing failed closed to vanilla zoom: " + exception);
+            }
+        }
+
+        private static Exception GameCameraUpdateCameraFinalizer(Exception __exception, bool __state)
+        {
+            if (__state && _suppressCameraMouseWheelDepth > 0) _suppressCameraMouseWheelDepth--;
+            return __exception;
+        }
+
         private static bool ZInputGetMouseScrollWheelPrefix(ref float __result)
         {
-            if (_activeModule == null || Time.frameCount != _suppressMouseWheelFrame) return true;
+            if (_activeModule == null || _suppressCameraMouseWheelDepth <= 0) return true;
             __result = 0f;
             return false;
+        }
+
+        private bool ShouldSuppressCameraZoom()
+        {
+            var player = Player.m_localPlayer;
+            var table = player != null ? player.GetBuildTool() : null;
+            var altHeld = ZInput.GetKey(KeyCode.LeftAlt, false) || ZInput.GetKey(KeyCode.RightAlt, false);
+            return CameraWheelRouting.ShouldSuppressZoom(
+                player != null,
+                player != null && player.InPlaceMode(),
+                player != null && player.IsDead(),
+                IsLikelyHoePieceTable(table),
+                altHeld,
+                Hud.IsPieceSelectionVisible());
         }
 
         private static void ZNetSceneOnDestroyPrefix()
@@ -655,7 +703,6 @@ namespace Treadwell
             var next = current.Scroll(wheel);
             if (Approximately(next.Radius, current.Radius)) return;
             _terrainRadii[binding.Kind] = next;
-            _suppressMouseWheelFrame = Time.frameCount;
             SynchronizePlacementGhost(placementGhost, binding);
         }
 
@@ -745,7 +792,7 @@ namespace Treadwell
             _radiusPieceTable = null;
             _radiusValidationFrame = -1;
             _radiusValidationResult = false;
-            _suppressMouseWheelFrame = -1;
+            _suppressCameraMouseWheelDepth = 0;
         }
 
         private void RestoreScaledPlacementGhost()
@@ -974,7 +1021,8 @@ namespace Treadwell
         private static bool IsLikelyHoePieceTable(PieceTable table)
         {
             var name = table != null && table.gameObject != null ? table.gameObject.name : null;
-            return name != null && name.IndexOf("hoe", StringComparison.OrdinalIgnoreCase) >= 0;
+            return string.Equals(name, "_HoePieceTable", StringComparison.Ordinal) ||
+                   string.Equals(name, "_HoePieceTable(Clone)", StringComparison.Ordinal);
         }
 
         private void LogDiscoveryFailureOnce(

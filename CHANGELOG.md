@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1
+
+- Prevented camera zoom while Alt+scroll is routed through the vanilla hoe placement mode, including radius bounds, rejected/no-op adjustments, and ineligible hoe actions; zoom without Alt, with another tool, or in the build-selection UI remains vanilla.
+- Scoped wheel suppression to the exact `GameCamera.UpdateCamera(float)` call and restored it in a Harmony finalizer, leaving Treadwell's placement input, build-menu selection, rotation, controllers, and unrelated tools untouched.
+- Reduced Level Ground's maximum radius from 10 m to 8 m; Pathen and Paved Road remain independently adjustable from 1–10 m in 0.5 m steps.
+- Corrected Pathen recognition by treating runtime prefab object names as diagnostics while retaining exact localized identity, complete three-brush uniqueness, operation/recipe fingerprints, root-component constraints, and vanilla 3/2/3 m baselines.
+- Kept Pathen's independent 2 m session baseline and synchronized proportional indicator/effect scaling.
+- Added exact runtime and pinned-IL contracts for `GameCamera.UpdateCamera(float)` and its two `ZInput.GetMouseScrollWheel()` reads, plus regression coverage for camera-routing noninterference, per-action bounds, and Pathen live-object naming.
+- Preserved all 0.1.2 road bonuses, stonecutter-free Paved Road behavior, transactional terrain mutation/restoration, and Raise Ground exclusion.
+- This remains a live-unverified test candidate. Remote-owner and multiplayer radius propagation remains explicitly unverified.
+
 ## 0.2.0
 
 - Added session-only terrain-radius controls for the hoe's exact vanilla Level Ground, Pathen, and Paved Road actions: hold Left Alt or Right Alt and scroll in 0.5 m steps from 1–10 m.

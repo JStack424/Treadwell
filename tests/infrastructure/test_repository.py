@@ -86,7 +86,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         for patch in (
             "PlayerSetPlaceModePrefix", "PieceTableUpdateAvailablePrefix", "PlayerHaveRequirementsPrefix",
             "PlayerUpdatePlacementPrefix", "PlayerPlacePiecePrefix", "PlayerPlacePieceFinalizer",
-            "ZInputGetMouseScrollWheelPrefix", "ZNetSceneOnDestroyPrefix", "GetRunSpeedFactorPostfix",
+            "GameCameraUpdateCameraPrefix", "GameCameraUpdateCameraFinalizer", "ZInputGetMouseScrollWheelPrefix", "ZNetSceneOnDestroyPrefix", "GetRunSpeedFactorPostfix",
             "ModifyRunStaminaDrainPostfix",
         ):
             self.assertIn("RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(" + patch + ")", module)
@@ -106,7 +106,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             'typeof(UnityEngine.Object), "op_Inequality"', 'typeof(Harmony), "Patch"',
             'typeof(Harmony), "UnpatchSelf"', 'typeof(AccessTools), "DeclaredMethod"',
             'typeof(Transform), "localScale"', 'typeof(Transform), "Find"',
-            'typeof(Time), "frameCount"', 'typeof(ZInput), "GetKey"',
+            'typeof(Time), "frameCount"', 'typeof(GameCamera), "UpdateCamera"', 'typeof(ZInput), "GetKey"',
             'typeof(ZInput), "GetMouseScrollWheel"', 'typeof(Hud), "IsPieceSelectionVisible"',
         ):
             self.assertIn(runtime_contract, module)
@@ -214,12 +214,12 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         core = (ROOT / "src" / f"{IDENTIFIER}.Core" / "TerrainRadiusLogic.cs").read_text()
         tests = (ROOT / "tests" / f"{IDENTIFIER}.Tests" / "Program.cs").read_text()
         for marker in (
-            "VanillaTerrainBrushClassifier.Classify", "new TerrainRadiusSelection(3f)",
-            "new TerrainRadiusSelection(2f)", "HasExpectedVanillaRadii",
+            "VanillaTerrainBrushClassifier.Classify", "new TerrainRadiusSelection(TerrainBrushKind.LevelGround, 3f)",
+            "new TerrainRadiusSelection(TerrainBrushKind.Pathen, 2f)", "HasExpectedVanillaRadii",
             "TerrainBrushKind.LevelGround", "TerrainBrushKind.Pathen", "TerrainBrushKind.PavedRoad",
             "ZInput.GetKey(KeyCode.LeftAlt, false)", "ZInput.GetKey(KeyCode.RightAlt, false)",
             "ZInput.GetMouseScrollWheel()", "GetComponentsInChildren<TerrainOp>(true)",
-            "_suppressMouseWheelFrame = Time.frameCount", 'transform.Find("_GhostOnly")',
+            "_suppressCameraMouseWheelDepth", "ShouldSuppressCameraZoom", 'transform.Find("_GhostOnly")',
             "markerObject.activeInHierarchy", "marker.localScale = _scaledPlacementGhostAppliedScale",
             "_scaledPlacementGhostBaseScale.y * scale", "mutation.Apply(radius.Radius)",
             "RevalidateTerrainRadiusBindings(force: false)", "RevalidateTerrainRadiusBindings(force: true)",
@@ -230,18 +230,21 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             self.assertIn(marker, module)
         self.assertIn("MinimumRadius = 1f", core)
         self.assertIn("MaximumRadius = 10f", core)
+        self.assertIn("LevelGroundMaximumRadius = 8f", core)
         self.assertIn("Step = 0.5f", core)
         self.assertIn("shape.Level", core)
         self.assertIn("shape.PaintType == DirtPaintType", core)
         self.assertIn("shape.PaintType == PavedPaintType", core)
         self.assertIn("shape.ResourceRequirementCount == 0", core)
         self.assertIn("shape.SingleUnitStoneResourceRequirementCount == 1", core)
-        wheel_read = module.index("var wheel = ZInput.GetMouseScrollWheel();")
-        zero_wheel = module.index("if (wheel == 0f) return;", wheel_read)
-        wheel_suppression = module.index("_suppressMouseWheelFrame = Time.frameCount;", wheel_read)
-        self.assertLess(zero_wheel, wheel_suppression)
+        self.assertIn("GameCameraUpdateCameraPrefix", module)
+        self.assertIn("GameCameraUpdateCameraFinalizer", module)
+        self.assertIn("_suppressCameraMouseWheelDepth <= 0", module)
+        self.assertIn('string.Equals(name, "_HoePieceTable", StringComparison.Ordinal)', module)
+        self.assertIn('string.Equals(name, "_HoePieceTable(Clone)", StringComparison.Ordinal)', module)
+        self.assertNotIn("_suppressMouseWheelFrame", module)
         for exclusion in (
-            "Raise Ground is excluded", "cultivator paint is excluded", "wrong prefab identity is excluded",
+            "Raise Ground is excluded", "cultivator paint is excluded", "Pathen live shape tolerates Valheim prefab object renaming",
             "ordinary hammer piece is excluded", "legacy TerrainModifier addition is excluded",
             "paved paint without vanilla recipe shape is excluded",
             "Paved Road smooth and paint radii preserve their vanilla ratio",
