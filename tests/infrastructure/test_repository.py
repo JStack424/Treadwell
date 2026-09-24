@@ -223,6 +223,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "markerObject.activeInHierarchy", "marker.localScale = _scaledPlacementGhostAppliedScale",
             "_scaledPlacementGhostBaseScale.y * scale", "mutation.Apply(radius.Radius)",
             "RevalidateTerrainRadiusBindings(force: false)", "RevalidateTerrainRadiusBindings(force: true)",
+            "InspectPieceTable(_radiusPieceTable)", "if (pair.Value.Count != 1) return false;",
+            "ReferenceEquals(binding.TerrainOp, entry.TerrainOps[0])",
             "__state?.Restore", "ResetTerrainRadiusRuntime", "binding.VanillaRadius",
         ):
             self.assertIn(marker, module)
