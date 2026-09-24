@@ -124,13 +124,13 @@ namespace Treadwell.Tests
             });
             Run("nested paved terrain operation is eligible", () =>
             {
-                var shape = Candidate(terrainModifierCount: 2, pavedTerrainModifierCount: 1);
+                var shape = Candidate(terrainOperationCount: 2, pavedTerrainOperationCount: 1);
                 Equal(true, shape.IsSemanticCandidate);
             });
             Run("unique semantic candidate wins among unrelated entries", () =>
             {
                 var selection = Select(
-                    Candidate(pavedTerrainModifierCount: 0),
+                    Candidate(pavedTerrainOperationCount: 0),
                     Candidate(),
                     Candidate(hasStationRequirement: false));
                 Equal(PavedRoadDiscoveryOutcome.Unique, selection.Outcome);
@@ -138,7 +138,7 @@ namespace Treadwell.Tests
             });
             Run("zero semantic candidates fails closed", () =>
             {
-                var selection = Select(Candidate(pavedTerrainModifierCount: 0));
+                var selection = Select(Candidate(pavedTerrainOperationCount: 0));
                 Equal(PavedRoadDiscoveryOutcome.None, selection.Outcome);
                 Equal(-1, selection.CandidateIndex);
                 Equal(0, selection.CandidateCount);
@@ -155,9 +155,9 @@ namespace Treadwell.Tests
             Run("owned station removal remains discoverable", () =>
                 Equal(true, Candidate(hasStationRequirement: true).IsSemanticCandidate));
             Run("non-paved terrain operation is rejected", () =>
-                Equal(false, Candidate(pavedTerrainModifierCount: 0).IsSemanticCandidate));
+                Equal(false, Candidate(pavedTerrainOperationCount: 0).IsSemanticCandidate));
             Run("multiple paved operations are rejected", () =>
-                Equal(false, Candidate(terrainModifierCount: 2, pavedTerrainModifierCount: 2).IsSemanticCandidate));
+                Equal(false, Candidate(terrainOperationCount: 2, pavedTerrainOperationCount: 2).IsSemanticCandidate));
             Run("missing resource requirement is rejected", () =>
                 Equal(false, Candidate(resourceRequirementCount: 0, singleUnitResourceRequirementCount: 0).IsSemanticCandidate));
             Run("multiple resource requirements are rejected", () =>
@@ -171,7 +171,7 @@ namespace Treadwell.Tests
             Run("single Piece that is not on the table-entry root is rejected", () =>
                 Equal(false, Candidate(hasRootPiece: false).IsSemanticCandidate));
             Run("additional non-paved terrain helpers do not hide one paved operation", () =>
-                Equal(true, Candidate(terrainModifierCount: 3, pavedTerrainModifierCount: 1).IsSemanticCandidate));
+                Equal(true, Candidate(terrainOperationCount: 3, pavedTerrainOperationCount: 1).IsSemanticCandidate));
             Run("null candidate list is rejected", () =>
             {
                 try
@@ -344,7 +344,10 @@ namespace Treadwell.Tests
         private static void TerrainRadiusTests()
         {
             TerrainBrushShape Shape(
+                string prefab,
+                string pieceName,
                 bool level = false,
+                bool raise = false,
                 bool smooth = false,
                 bool paint = false,
                 int paintType = -1,
@@ -353,92 +356,128 @@ namespace Treadwell.Tests
                 int single = 0,
                 int stone = 0,
                 int pieces = 1,
-                bool root = true,
-                int modifiers = 1)
-                => new TerrainBrushShape(pieces, root, modifiers, level, smooth, paint, paintType,
+                bool rootPiece = true,
+                int terrainOps = 1,
+                bool rootTerrainOp = true,
+                int terrainModifiers = 0,
+                bool canRotate = false)
+                => new TerrainBrushShape(pieces, rootPiece, terrainOps, rootTerrainOp, terrainModifiers,
+                    prefab, pieceName, canRotate, level, raise, smooth, paint, paintType,
                     station, resources, single, stone);
 
-            Run("exact zero-cost level operation is Level Ground", () =>
-                Equal(TerrainBrushKind.LevelGround,
-                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, smooth: true))));
-            Run("Level Ground wins even when its terrain operation also clears paint", () =>
-                Equal(TerrainBrushKind.LevelGround,
-                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, smooth: true, paint: true, paintType: 0))));
-            Run("exact zero-cost dirt paint operation is Pathen", () =>
-                Equal(TerrainBrushKind.Pathen,
-                    VanillaTerrainBrushClassifier.Classify(Shape(smooth: true, paint: true, paintType: 0))));
-            Run("exact station-backed single-stone paved operation is Paved Road", () =>
-                Equal(TerrainBrushKind.PavedRoad,
-                    VanillaTerrainBrushClassifier.Classify(Shape(smooth: true, paint: true, paintType: 2,
-                        station: true, resources: 1, single: 1, stone: 1))));
-            Run("Raise Ground is excluded", () =>
-                Equal(TerrainBrushKind.None,
-                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, resources: 1, single: 1, stone: 1))));
-            Run("cultivator paint is excluded", () =>
-                Equal(TerrainBrushKind.None,
-                    VanillaTerrainBrushClassifier.Classify(Shape(paint: true, paintType: 1))));
-            Run("terrain reset paint is excluded", () =>
-                Equal(TerrainBrushKind.None,
-                    VanillaTerrainBrushClassifier.Classify(Shape(paint: true, paintType: 3))));
-            Run("ordinary hammer piece is excluded", () =>
-                Equal(TerrainBrushKind.None,
-                    VanillaTerrainBrushClassifier.Classify(Shape(modifiers: 0))));
-            Run("child Piece ambiguity is excluded", () =>
-                Equal(TerrainBrushKind.None,
-                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, pieces: 2))));
-            Run("missing root Piece is excluded", () =>
-                Equal(TerrainBrushKind.None,
-                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, root: false))));
-            Run("extra TerrainModifier is excluded", () =>
-                Equal(TerrainBrushKind.None,
-                    VanillaTerrainBrushClassifier.Classify(Shape(level: true, modifiers: 2))));
-            Run("paved paint without vanilla recipe shape is excluded", () =>
-                Equal(TerrainBrushKind.None,
-                    VanillaTerrainBrushClassifier.Classify(Shape(paint: true, paintType: 2))));
+            TerrainBrushShape LevelGround() => Shape(
+                "mud_road_v2", "$piece_levelground", smooth: true, paint: true, paintType: 0);
+            TerrainBrushShape Pathen() => Shape(
+                "path_v2", "$piece_path", paint: true, paintType: 0);
+            TerrainBrushShape PavedRoad() => Shape(
+                "paved_road_v2", "$piece_pavedroad", smooth: true, paint: true, paintType: 2,
+                station: true, resources: 1, single: 1, stone: 1);
 
-            Run("radius begins at vanilla two metres", () => Near(2f, new TerrainRadiusSelection(2f).Radius));
+            Run("exact vanilla smooth-and-dirt action is Level Ground", () =>
+                Equal(TerrainBrushKind.LevelGround, VanillaTerrainBrushClassifier.Classify(LevelGround())));
+            Run("exact vanilla dirt paint action is Pathen", () =>
+                Equal(TerrainBrushKind.Pathen, VanillaTerrainBrushClassifier.Classify(Pathen())));
+            Run("exact vanilla station-backed paved action is Paved Road", () =>
+                Equal(TerrainBrushKind.PavedRoad, VanillaTerrainBrushClassifier.Classify(PavedRoad())));
+            Run("Level Ground with level channel is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "mud_road_v2", "$piece_levelground", level: true, smooth: true, paint: true, paintType: 0))));
+            Run("Raise Ground is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "mud_road_v2", "$piece_levelground", raise: true, smooth: true, paint: true, paintType: 0))));
+            Run("cultivator paint is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "path_v2", "$piece_path", paint: true, paintType: 1))));
+            Run("wrong prefab identity is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "modded_path", "$piece_path", paint: true, paintType: 0))));
+            Run("wrong localized identity is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "path_v2", "$piece_modded", paint: true, paintType: 0))));
+            Run("rotatable action is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "path_v2", "$piece_path", paint: true, paintType: 0, canRotate: true))));
+            Run("ordinary hammer piece is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "wood_wall", "$piece_woodwall", terrainOps: 0, rootTerrainOp: false))));
+            Run("child Piece ambiguity is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "path_v2", "$piece_path", paint: true, paintType: 0, pieces: 2))));
+            Run("missing root TerrainOp is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "path_v2", "$piece_path", paint: true, paintType: 0, rootTerrainOp: false))));
+            Run("extra TerrainOp is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "path_v2", "$piece_path", paint: true, paintType: 0, terrainOps: 2))));
+            Run("legacy TerrainModifier addition is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "path_v2", "$piece_path", paint: true, paintType: 0, terrainModifiers: 1))));
+            Run("paved paint without vanilla recipe shape is excluded", () =>
+                Equal(TerrainBrushKind.None, VanillaTerrainBrushClassifier.Classify(Shape(
+                    "paved_road_v2", "$piece_pavedroad", smooth: true, paint: true, paintType: 2))));
+
+            Run("Level Ground radius begins at vanilla three metres", () =>
+                Near(3f, new TerrainRadiusSelection(3f).Radius));
+            Run("Pathen radius begins at vanilla two metres", () =>
+                Near(2f, new TerrainRadiusSelection(2f).Radius));
+            Run("Paved Road radius begins at vanilla three metres", () =>
+                Near(3f, new TerrainRadiusSelection(3f).Radius));
             Run("scroll up increases radius by half a metre", () =>
-                Near(2.5f, new TerrainRadiusSelection(2f).Scroll(1f).Radius));
+                Near(3.5f, new TerrainRadiusSelection(3f).Scroll(1f).Radius));
             Run("scroll down decreases radius by half a metre", () =>
                 Near(1.5f, new TerrainRadiusSelection(2f).Scroll(-1f).Radius));
             Run("zero scroll leaves radius unchanged", () =>
-                Near(2f, new TerrainRadiusSelection(2f).Scroll(0f).Radius));
+                Near(3f, new TerrainRadiusSelection(3f).Scroll(0f).Radius));
             Run("radius is bounded at one metre", () =>
                 Near(1f, new TerrainRadiusSelection(1f).Scroll(-1f).Radius));
             Run("radius is bounded at ten metres", () =>
                 Near(10f, new TerrainRadiusSelection(10f).Scroll(1f).Radius));
-            Run("non-finite radius returns to vanilla", () =>
+            Run("non-finite radius returns to safe vanilla fallback", () =>
             {
                 Near(2f, new TerrainRadiusSelection(float.NaN).Radius);
                 Near(2f, new TerrainRadiusSelection(float.PositiveInfinity).Radius);
             });
             Run("selection quantizes to half-metre steps", () =>
                 Near(2.5f, new TerrainRadiusSelection(2.31f).Radius));
-            Run("indicator scale is proportional to vanilla radius", () =>
-                Near(2f, new TerrainRadiusSelection(4f).ScaleFor(2f)));
+            Run("indicator scale is proportional to the selected action baseline", () =>
+                Near(2f, new TerrainRadiusSelection(6f).ScaleFor(3f)));
             Run("invalid indicator baseline fails closed to unit scale", () =>
                 Near(1f, new TerrainRadiusSelection(4f).ScaleFor(0f)));
-            Run("all active effect radii scale in lockstep", () =>
+            Run("Paved Road smooth and paint radii preserve their vanilla ratio", () =>
             {
-                var scaled = new TerrainRadiusValues(2f, 1f, 2f).ScaleActive(true, true, true, 4f);
-                Near(4f, scaled.Level);
-                Near(2f, scaled.Smooth);
-                Near(4f, scaled.Paint);
+                var scaled = new TerrainRadiusValues(7f, 8f, 3f, 2.2f)
+                    .ScaleActive(false, false, true, true, 6f);
+                Near(7f, scaled.Level);
+                Near(8f, scaled.Raise);
+                Near(6f, scaled.Smooth);
+                Near(4.4f, scaled.Paint);
             });
-            Run("inactive effect radii are untouched", () =>
+            Run("Level Ground active radii scale together", () =>
             {
-                var scaled = new TerrainRadiusValues(2f, 3f, 4f).ScaleActive(true, false, false, 4f);
-                Near(4f, scaled.Level);
-                Near(3f, scaled.Smooth);
+                var scaled = new TerrainRadiusValues(5f, 6f, 3f, 3f)
+                    .ScaleActive(false, false, true, true, 4.5f);
+                Near(5f, scaled.Level);
+                Near(6f, scaled.Raise);
+                Near(4.5f, scaled.Smooth);
+                Near(4.5f, scaled.Paint);
+            });
+            Run("Pathen changes only its active paint radius", () =>
+            {
+                var scaled = new TerrainRadiusValues(5f, 6f, 7f, 2f)
+                    .ScaleActive(false, false, false, true, 4f);
+                Near(5f, scaled.Level);
+                Near(6f, scaled.Raise);
+                Near(7f, scaled.Smooth);
                 Near(4f, scaled.Paint);
             });
             Run("missing active radius leaves all values untouched", () =>
             {
-                var values = new TerrainRadiusValues(2f, 3f, 4f);
-                var scaled = values.ScaleActive(false, false, false, 8f);
+                var values = new TerrainRadiusValues(2f, 3f, 4f, 5f);
+                var scaled = values.ScaleActive(false, false, false, false, 8f);
                 Near(2f, scaled.Level);
-                Near(3f, scaled.Smooth);
-                Near(4f, scaled.Paint);
+                Near(3f, scaled.Raise);
+                Near(4f, scaled.Smooth);
+                Near(5f, scaled.Paint);
             });
         }
 
@@ -491,8 +530,8 @@ namespace Treadwell.Tests
         private static PavedRoadCandidateShape Candidate(
             int pieceComponentCount = 1,
             bool hasRootPiece = true,
-            int terrainModifierCount = 1,
-            int pavedTerrainModifierCount = 1,
+            int terrainOperationCount = 1,
+            int pavedTerrainOperationCount = 1,
             bool hasStationRequirement = true,
             int resourceRequirementCount = 1,
             int singleUnitResourceRequirementCount = 1,
@@ -500,8 +539,8 @@ namespace Treadwell.Tests
             => new PavedRoadCandidateShape(
                 pieceComponentCount,
                 hasRootPiece,
-                terrainModifierCount,
-                pavedTerrainModifierCount,
+                terrainOperationCount,
+                pavedTerrainOperationCount,
                 hasStationRequirement,
                 resourceRequirementCount,
                 singleUnitResourceRequirementCount,

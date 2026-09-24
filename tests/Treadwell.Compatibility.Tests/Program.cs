@@ -14,12 +14,13 @@ namespace Treadwell.Compatibility.Tests
     internal static class Program
     {
         private const string ExpectedSha256 = "e5af0669755ed3b098f71b4dd0753f8a997761b99bca1e8dac3d5ca4c706a0be";
+        private const string ExpectedUtilsSha256 = "5d26cbdcb430acd41af26fb6efda0b6b291a89f6fb6934c503abb896bd51da40";
         private static readonly Guid ExpectedMvid = new Guid("a63433e8-968e-407a-918a-9f9fe7e7ba9a");
         private static int _passed;
 
         private static int Main(string[] args)
         {
-            if (args.Length != 1) throw new ArgumentException("Expected path to assembly_valheim.dll.");
+            if (args.Length != 2) throw new ArgumentException("Expected paths to assembly_valheim.dll and assembly_utils.dll.");
             var path = Path.GetFullPath(args[0]);
             Equal(ExpectedSha256, Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant(), "assembly SHA-256");
 
@@ -43,6 +44,9 @@ namespace Treadwell.Compatibility.Tests
             contract.Method("Player", "IsDead", "System.Boolean", Array.Empty<string>(), MethodAttributes.Public | MethodAttributes.Virtual);
             contract.Method("PieceTable", "GetSelectedPiece", "Piece", Array.Empty<string>(), MethodAttributes.Public);
             contract.Method("TerrainModifier", "GetRadius", "System.Single", Array.Empty<string>(), MethodAttributes.Public);
+            contract.Method("TerrainOp", "GetRadius", "System.Single", Array.Empty<string>(), MethodAttributes.Public);
+            contract.Method("TerrainOp", "Awake", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
+            contract.Method("TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" }, MethodAttributes.Public);
             contract.Method("Character", "UpdateWalking", "System.Void", new[] { "System.Single" }, MethodAttributes.Private);
             contract.Method("Player", "CheckRun", "System.Boolean", new[] { "UnityEngine.Vector3", "System.Single" },
                 MethodAttributes.Family | MethodAttributes.Virtual);
@@ -61,6 +65,7 @@ namespace Treadwell.Compatibility.Tests
             contract.Field("Piece", "m_name", "System.String", FieldAttributes.Public);
             contract.Field("Piece", "m_craftingStation", "CraftingStation", FieldAttributes.Public);
             contract.Field("Piece", "m_resources", "Requirement[]", FieldAttributes.Public);
+            contract.Field("Piece", "m_canRotate", "System.Boolean", FieldAttributes.Public);
             contract.NestedField("Piece", "Requirement", "m_resItem", "ItemDrop", FieldAttributes.Public);
             contract.NestedField("Piece", "Requirement", "m_amount", "System.Int32", FieldAttributes.Public);
             contract.Field("TerrainModifier", "m_paintType", "PaintType", FieldAttributes.Public);
@@ -70,6 +75,17 @@ namespace Treadwell.Compatibility.Tests
             contract.Field("TerrainModifier", "m_smoothRadius", "System.Single", FieldAttributes.Public);
             contract.Field("TerrainModifier", "m_paintCleared", "System.Boolean", FieldAttributes.Public);
             contract.Field("TerrainModifier", "m_paintRadius", "System.Single", FieldAttributes.Public);
+            contract.Field("TerrainOp", "m_settings", "Settings", FieldAttributes.Public);
+            contract.NestedMethod("TerrainOp", "Settings", "GetRadius", "System.Single", Array.Empty<string>(), MethodAttributes.Public);
+            contract.NestedField("TerrainOp", "Settings", "m_level", "System.Boolean", FieldAttributes.Public);
+            contract.NestedField("TerrainOp", "Settings", "m_levelRadius", "System.Single", FieldAttributes.Public);
+            contract.NestedField("TerrainOp", "Settings", "m_raise", "System.Boolean", FieldAttributes.Public);
+            contract.NestedField("TerrainOp", "Settings", "m_raiseRadius", "System.Single", FieldAttributes.Public);
+            contract.NestedField("TerrainOp", "Settings", "m_smooth", "System.Boolean", FieldAttributes.Public);
+            contract.NestedField("TerrainOp", "Settings", "m_smoothRadius", "System.Single", FieldAttributes.Public);
+            contract.NestedField("TerrainOp", "Settings", "m_paintCleared", "System.Boolean", FieldAttributes.Public);
+            contract.NestedField("TerrainOp", "Settings", "m_paintType", "PaintType", FieldAttributes.Public);
+            contract.NestedField("TerrainOp", "Settings", "m_paintRadius", "System.Single", FieldAttributes.Public);
             contract.Field("SEMan", "m_character", "Character", FieldAttributes.Private);
             contract.Field("Heightmap", "m_paintMaskDirt", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
             contract.Field("Heightmap", "m_paintMaskCultivated", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
@@ -97,6 +113,9 @@ namespace Treadwell.Compatibility.Tests
                 new[] { "Piece", "UnityEngine.Vector3", "UnityEngine.Quaternion", "System.Boolean", "System.Boolean" },
                 "UnityEngine.Object", "Instantiate", "UnityEngine.GameObject");
             contract.MethodCalls(
+                "TerrainOp", "Awake", "System.Void", Array.Empty<string>(),
+                "TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" });
+            contract.MethodCalls(
                 "Player", "SetPlaceMode", "System.Void", new[] { "PieceTable" },
                 "Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>());
             contract.MethodCalls(
@@ -121,7 +140,19 @@ namespace Treadwell.Compatibility.Tests
                 ["Cultivate"] = 1,
                 ["Paved"] = 2
             });
-            Console.WriteLine(_passed + "/55 compatibility contract checks passed");
+
+            var utilsPath = Path.GetFullPath(args[1]);
+            Equal(ExpectedUtilsSha256,
+                Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(utilsPath))).ToLowerInvariant(),
+                "assembly_utils SHA-256");
+            using var utilsStream = File.OpenRead(utilsPath);
+            using var utilsPe = new PEReader(utilsStream);
+            var utilsContract = new Contract(utilsPe.GetMetadataReader(), utilsPe);
+            utilsContract.Method("ZInput", "GetMouseScrollWheel", "System.Single", Array.Empty<string>(),
+                MethodAttributes.Public | MethodAttributes.Static);
+            utilsContract.Method("ZInput", "GetKey", "System.Boolean",
+                new[] { "UnityEngine.KeyCode", "System.Boolean" }, MethodAttributes.Public | MethodAttributes.Static);
+            Console.WriteLine(_passed + "/74 compatibility contract checks passed");
             return 0;
         }
 
@@ -298,6 +329,28 @@ namespace Treadwell.Compatibility.Tests
                     throw new InvalidOperationException(typeName + "." + fieldName + " signature/attributes mismatch");
                 _passed++;
                 Console.WriteLine("PASS field " + typeName + "." + fieldName);
+            }
+
+            internal void NestedMethod(
+                string outerName, string nestedName, string methodName, string returnType, string[] parameters,
+                MethodAttributes required)
+            {
+                var outer = _reader.GetTypeDefinition(FindTopLevelHandle(outerName));
+                var nested = outer.GetNestedTypes()
+                    .Select(handle => _reader.GetTypeDefinition(handle))
+                    .Single(type => _reader.GetString(type.Name) == nestedName);
+                var method = nested.GetMethods()
+                    .Select(handle => _reader.GetMethodDefinition(handle))
+                    .Single(value =>
+                    {
+                        if (_reader.GetString(value.Name) != methodName) return false;
+                        var signature = value.DecodeSignature(_provider, null);
+                        return signature.ReturnType == returnType && signature.ParameterTypes.SequenceEqual(parameters);
+                    });
+                if ((method.Attributes & required) != required)
+                    throw new InvalidOperationException(outerName + "." + nestedName + "." + methodName + " signature/attributes mismatch");
+                _passed++;
+                Console.WriteLine("PASS method " + outerName + "." + nestedName + "." + methodName);
             }
 
             internal void NestedField(

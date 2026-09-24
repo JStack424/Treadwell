@@ -106,7 +106,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             'typeof(UnityEngine.Object), "op_Inequality"', 'typeof(Harmony), "Patch"',
             'typeof(Harmony), "UnpatchSelf"', 'typeof(AccessTools), "DeclaredMethod"',
             'typeof(Transform), "localScale"', 'typeof(Transform), "Find"',
-            'typeof(Time), "frameCount"', 'typeof(UnityEngine.Input), "GetKey"',
+            'typeof(Time), "frameCount"', 'typeof(ZInput), "GetKey"',
             'typeof(ZInput), "GetMouseScrollWheel"', 'typeof(Hud), "IsPieceSelectionVisible"',
         ):
             self.assertIn(runtime_contract, module)
@@ -174,7 +174,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("GetComponentsInChildren<TerrainModifier>(true)", module)
         self.assertIn("PavedRoadCandidateSelector.Select", module)
         self.assertIn("HasRootPiece", station_override)
-        self.assertIn("PavedTerrainModifierCount == 1", station_override)
+        self.assertIn("PavedTerrainOperationCount == 1", station_override)
         self.assertIn("ResourceRequirementCount == 1", station_override)
         self.assertIn("SingleUnitResourceRequirementCount == 1", station_override)
         self.assertIn("SingleUnitStoneResourceRequirementCount == 1", station_override)
@@ -214,12 +214,15 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         core = (ROOT / "src" / f"{IDENTIFIER}.Core" / "TerrainRadiusLogic.cs").read_text()
         tests = (ROOT / "tests" / f"{IDENTIFIER}.Tests" / "Program.cs").read_text()
         for marker in (
-            "VanillaTerrainBrushClassifier.Classify", "TerrainRadiusSelection.VanillaRadius",
+            "VanillaTerrainBrushClassifier.Classify", "new TerrainRadiusSelection(3f)",
+            "new TerrainRadiusSelection(2f)", "HasExpectedVanillaRadii",
             "TerrainBrushKind.LevelGround", "TerrainBrushKind.Pathen", "TerrainBrushKind.PavedRoad",
-            "KeyCode.LeftAlt", "KeyCode.RightAlt", "ZInput.GetMouseScrollWheel()",
+            "ZInput.GetKey(KeyCode.LeftAlt, false)", "ZInput.GetKey(KeyCode.RightAlt, false)",
+            "ZInput.GetMouseScrollWheel()", "GetComponentsInChildren<TerrainOp>(true)",
             "_suppressMouseWheelFrame = Time.frameCount", 'transform.Find("_GhostOnly")',
-            "marker.localScale = _scaledPlacementGhostAppliedScale", "mutation.Apply(_terrainRadius.Radius)",
-            "__state?.Restore", "ResetTerrainRadiusRuntime", "Approximately(baseline, TerrainRadiusSelection.VanillaRadius)",
+            "markerObject.activeInHierarchy", "marker.localScale = _scaledPlacementGhostAppliedScale",
+            "_scaledPlacementGhostBaseScale.y * scale", "mutation.Apply(radius.Radius)",
+            "__state?.Restore", "ResetTerrainRadiusRuntime", "binding.VanillaRadius",
         ):
             self.assertIn(marker, module)
         self.assertIn("MinimumRadius = 1f", core)
@@ -235,9 +238,11 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         wheel_suppression = module.index("_suppressMouseWheelFrame = Time.frameCount;", wheel_read)
         self.assertLess(zero_wheel, wheel_suppression)
         for exclusion in (
-            "Raise Ground is excluded", "cultivator paint is excluded", "terrain reset paint is excluded",
-            "ordinary hammer piece is excluded", "paved paint without vanilla recipe shape is excluded",
-            "all active effect radii scale in lockstep", "inactive effect radii are untouched",
+            "Raise Ground is excluded", "cultivator paint is excluded", "wrong prefab identity is excluded",
+            "ordinary hammer piece is excluded", "legacy TerrainModifier addition is excluded",
+            "paved paint without vanilla recipe shape is excluded",
+            "Paved Road smooth and paint radii preserve their vanilla ratio",
+            "Pathen changes only its active paint radius",
         ):
             self.assertIn(exclusion, tests)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
@@ -248,6 +253,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         gate = (PLUGIN_DIR / "CompatibilityGate.cs").read_text()
         module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
         self.assertIn(f"tests/$identifier.Compatibility.Tests/$identifier.Compatibility.Tests.csproj", build)
+        self.assertIn('"$reference_path/assembly_valheim.dll" "$reference_path/assembly_utils.dll"', build)
         for marker in (
             "ExpectedSha256", "ExpectedMvid", "PieceTable", "UpdateAvailable", "ZNetScene", "OnDestroy",
             "SetPlaceMode", "GetBuildTool", "UpdateAvailablePiecesList", "HaveRequirements", "UpdatePlacement", "PlacePiece",

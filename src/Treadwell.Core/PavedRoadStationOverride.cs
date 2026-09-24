@@ -15,8 +15,8 @@ namespace Treadwell.Core
         public PavedRoadCandidateShape(
             int pieceComponentCount,
             bool hasRootPiece,
-            int terrainModifierCount,
-            int pavedTerrainModifierCount,
+            int terrainOperationCount,
+            int pavedTerrainOperationCount,
             bool hasStationRequirement,
             int resourceRequirementCount,
             int singleUnitResourceRequirementCount,
@@ -24,8 +24,8 @@ namespace Treadwell.Core
         {
             PieceComponentCount = pieceComponentCount;
             HasRootPiece = hasRootPiece;
-            TerrainModifierCount = terrainModifierCount;
-            PavedTerrainModifierCount = pavedTerrainModifierCount;
+            TerrainOperationCount = terrainOperationCount;
+            PavedTerrainOperationCount = pavedTerrainOperationCount;
             HasStationRequirement = hasStationRequirement;
             ResourceRequirementCount = resourceRequirementCount;
             SingleUnitResourceRequirementCount = singleUnitResourceRequirementCount;
@@ -34,8 +34,8 @@ namespace Treadwell.Core
 
         public int PieceComponentCount { get; }
         public bool HasRootPiece { get; }
-        public int TerrainModifierCount { get; }
-        public int PavedTerrainModifierCount { get; }
+        public int TerrainOperationCount { get; }
+        public int PavedTerrainOperationCount { get; }
         public bool HasStationRequirement { get; }
         public int ResourceRequirementCount { get; }
         public int SingleUnitResourceRequirementCount { get; }
@@ -44,7 +44,7 @@ namespace Treadwell.Core
         public bool IsSemanticCandidate =>
             PieceComponentCount == 1 &&
             HasRootPiece &&
-            PavedTerrainModifierCount == 1 &&
+            PavedTerrainOperationCount == 1 &&
             HasStationRequirement &&
             ResourceRequirementCount == 1 &&
             SingleUnitResourceRequirementCount == 1 &&

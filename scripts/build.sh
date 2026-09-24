@@ -15,5 +15,5 @@ fi
 ./scripts/dotnet.sh restore "$identifier.sln" --locked-mode -p:ValheimReferencePath="$reference_path" -p:SourceRevisionId="$code_revision"
 ./scripts/dotnet.sh build "$identifier.sln" --configuration Release --no-restore -p:ValheimReferencePath="$reference_path" -p:SourceRevisionId="$code_revision"
 ./scripts/dotnet.sh run --project "tests/$identifier.Tests/$identifier.Tests.csproj" --configuration Release --no-build
-./scripts/dotnet.sh run --project "tests/$identifier.Compatibility.Tests/$identifier.Compatibility.Tests.csproj" --configuration Release --no-build -- "$reference_path/assembly_valheim.dll"
+./scripts/dotnet.sh run --project "tests/$identifier.Compatibility.Tests/$identifier.Compatibility.Tests.csproj" --configuration Release --no-build -- "$reference_path/assembly_valheim.dll" "$reference_path/assembly_utils.dll"
 python3 -m unittest discover -s tests/infrastructure -p 'test_*.py' -v
