@@ -202,6 +202,13 @@ namespace Treadwell.Core
             _ = activeInHierarchy;
             return markerExists;
         }
+
+        public static bool ShouldScaleOwnTransform(bool isGhostOnlyMarker, bool isLocalScalingParticle)
+        {
+            // A ParticleSystem in Local scaling mode ignores ancestor scale. Scale its
+            // own Transform unless it already shares the _GhostOnly marker Transform.
+            return isGhostOnlyMarker || isLocalScalingParticle;
+        }
     }
 
     public interface ITerrainRadiusMutationTarget

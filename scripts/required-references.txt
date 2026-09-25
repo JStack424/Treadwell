@@ -3,6 +3,7 @@ BepInEx.dll
 Unity.TextMeshPro.dll
 UnityEngine.CoreModule.dll
 UnityEngine.InputLegacyModule.dll
+UnityEngine.ParticleSystemModule.dll
 UnityEngine.UI.dll
 UnityEngine.dll
 assembly_guiutils.dll

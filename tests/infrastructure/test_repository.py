@@ -220,8 +220,10 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "ZInput.GetKey(KeyCode.LeftAlt, false)", "ZInput.GetKey(KeyCode.RightAlt, false)",
             "ZInput.GetMouseScrollWheel()", "GetComponentsInChildren<TerrainOp>(true)",
             "_suppressCameraMouseWheelDepth", "ShouldSuppressCameraZoom", 'transform.Find("_GhostOnly")',
-            "TerrainIndicatorRouting.CanSynchronize", "marker.localScale = _scaledPlacementGhostAppliedScale",
-            "new TerrainIndicatorScale", "mutation.Apply(radius.Radius)",
+            "TerrainIndicatorRouting.CanSynchronize", "GetComponentsInChildren<ParticleSystem>(true)",
+            "particle.main.scalingMode == ParticleSystemScalingMode.Local", "_scaledIndicatorTransforms",
+            "new ScaledIndicatorTransform(marker)", "target.Apply(scale)", "new TerrainIndicatorScale",
+            "mutation.Apply(radius.Radius)",
             "ObjectDB.instance", "TryGetTerrainOp(piece.gameObject.name", "registeredTerrainOp",
             "new RadiusMutation(binding.TerrainOp, registeredTerrainOp)",
             "new TerrainRadiusMutationSession(targets)", "_session.Restore()",
@@ -255,6 +257,9 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "Pathen changes only its active paint radius",
             "inactive vanilla marker remains eligible for transform synchronization",
             "pinned Pathen prefab evidence proves the inactive rotated direct marker",
+            "GhostOnly marker always scales its own transform",
+            "nested Local particle scales its own transform",
+            "nonlocal descendant inherits marker scale without second scaling",
             "dual-source mutation applies and restores both settings objects",
             "Level Ground clone search and registered effect both use the selected radius before restore",
             "Pathen clone search and registered effect both use the selected radius before restore",
@@ -272,6 +277,12 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertTrue(fixture["ghost_only"]["direct_child_of_root"])
         self.assertFalse(fixture["ghost_only"]["active"])
         self.assertEqual([4.0, 4.0, 1.0], fixture["ghost_only"]["local_scale"])
+        particle = fixture["ghost_only"]["particle_system"]
+        self.assertEqual("Particle System", particle["name"])
+        self.assertTrue(particle["direct_child_of_ghost_only"])
+        self.assertEqual([1.0, 1.0, 1.0], particle["local_scale"])
+        self.assertEqual("Local", particle["scaling_mode"])
+        self.assertEqual(1, particle["scaling_mode_value"])
         contract = (ROOT / "docs" / "ASSEMBLY-CONTRACT.md").read_text()
         self.assertIn("tests/fixtures/path_v2-prefab.json", contract)
         self.assertIn("both the selected piece-table prefab and the matching `ObjectDB`", contract)

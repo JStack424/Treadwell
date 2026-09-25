@@ -18,6 +18,7 @@
     <Reference Include="UnityEngine"><HintPath>$(ValheimReferencePath)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(ValheimReferencePath)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(ValheimReferencePath)/UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.ParticleSystemModule"><HintPath>$(ValheimReferencePath)/UnityEngine.ParticleSystemModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.UI"><HintPath>$(ValheimReferencePath)/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Unity.TextMeshPro"><HintPath>$(ValheimReferencePath)/Unity.TextMeshPro.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="assembly_guiutils"><HintPath>$(ValheimReferencePath)/assembly_guiutils.dll</HintPath><Private>false</Private></Reference>
@@ -50,6 +51,7 @@
     <Error Condition="!Exists('$(ValheimReferencePath)/UnityEngine.dll')" Text="Missing private reference: UnityEngine.dll" />
     <Error Condition="!Exists('$(ValheimReferencePath)/UnityEngine.CoreModule.dll')" Text="Missing private reference: UnityEngine.CoreModule.dll" />
     <Error Condition="!Exists('$(ValheimReferencePath)/UnityEngine.InputLegacyModule.dll')" Text="Missing private reference: UnityEngine.InputLegacyModule.dll" />
+    <Error Condition="!Exists('$(ValheimReferencePath)/UnityEngine.ParticleSystemModule.dll')" Text="Missing private reference: UnityEngine.ParticleSystemModule.dll" />
     <Error Condition="!Exists('$(ValheimReferencePath)/UnityEngine.UI.dll')" Text="Missing private reference: UnityEngine.UI.dll" />
     <Error Condition="!Exists('$(ValheimReferencePath)/Unity.TextMeshPro.dll')" Text="Missing private reference: Unity.TextMeshPro.dll" />
     <Error Condition="!Exists('$(ValheimReferencePath)/assembly_guiutils.dll')" Text="Missing private reference: assembly_guiutils.dll" />
@@ -58,7 +60,7 @@
   </Target>
 
   <Target Name="VerifyReferencesWereNotCopied" AfterTargets="Build">
-    <Error Condition="Exists('$(TargetDir)0Harmony.dll') Or Exists('$(TargetDir)BepInEx.dll') Or Exists('$(TargetDir)UnityEngine.dll') Or Exists('$(TargetDir)UnityEngine.CoreModule.dll') Or Exists('$(TargetDir)UnityEngine.InputLegacyModule.dll') Or Exists('$(TargetDir)UnityEngine.UI.dll') Or Exists('$(TargetDir)Unity.TextMeshPro.dll') Or Exists('$(TargetDir)assembly_guiutils.dll') Or Exists('$(TargetDir)assembly_utils.dll') Or Exists('$(TargetDir)assembly_valheim.dll')"
+    <Error Condition="Exists('$(TargetDir)0Harmony.dll') Or Exists('$(TargetDir)BepInEx.dll') Or Exists('$(TargetDir)UnityEngine.dll') Or Exists('$(TargetDir)UnityEngine.CoreModule.dll') Or Exists('$(TargetDir)UnityEngine.InputLegacyModule.dll') Or Exists('$(TargetDir)UnityEngine.ParticleSystemModule.dll') Or Exists('$(TargetDir)UnityEngine.UI.dll') Or Exists('$(TargetDir)Unity.TextMeshPro.dll') Or Exists('$(TargetDir)assembly_guiutils.dll') Or Exists('$(TargetDir)assembly_utils.dll') Or Exists('$(TargetDir)assembly_valheim.dll')"
       Text="A private game/runtime reference leaked into plugin output." />
   </Target>
 </Project>

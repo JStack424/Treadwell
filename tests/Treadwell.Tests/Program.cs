@@ -474,12 +474,36 @@ namespace Treadwell.Tests
                 Near(0f, rotation[2].GetSingle());
                 Near(0.7071068f, rotation[3].GetSingle());
 
+                var particle = marker.GetProperty("particle_system");
+                Equal("Particle System", particle.GetProperty("name").GetString()!);
+                Equal(true, particle.GetProperty("direct_child_of_ghost_only").GetBoolean());
+                Equal("Local", particle.GetProperty("scaling_mode").GetString()!);
+                Equal(1, particle.GetProperty("scaling_mode_value").GetInt32());
+                var particleScale = particle.GetProperty("local_scale");
+                Near(1f, particleScale[0].GetSingle());
+                Near(1f, particleScale[1].GetSingle());
+                Near(1f, particleScale[2].GetSingle());
+
                 var scaled = new TerrainIndicatorScale(
                     scale[0].GetSingle(), scale[1].GetSingle(), scale[2].GetSingle()).ScaleUniformly(2.5f);
                 Near(10f, scaled.X);
                 Near(10f, scaled.Y);
                 Near(2.5f, scaled.Z);
+                var scaledParticle = new TerrainIndicatorScale(
+                    particleScale[0].GetSingle(), particleScale[1].GetSingle(), particleScale[2].GetSingle()).ScaleUniformly(2.5f);
+                Near(2.5f, scaledParticle.X);
+                Near(2.5f, scaledParticle.Y);
+                Near(2.5f, scaledParticle.Z);
             });
+            Run("GhostOnly marker always scales its own transform", () =>
+                Equal(true, TerrainIndicatorRouting.ShouldScaleOwnTransform(
+                    isGhostOnlyMarker: true, isLocalScalingParticle: false)));
+            Run("nested Local particle scales its own transform", () =>
+                Equal(true, TerrainIndicatorRouting.ShouldScaleOwnTransform(
+                    isGhostOnlyMarker: false, isLocalScalingParticle: true)));
+            Run("nonlocal descendant inherits marker scale without second scaling", () =>
+                Equal(false, TerrainIndicatorRouting.ShouldScaleOwnTransform(
+                    isGhostOnlyMarker: false, isLocalScalingParticle: false)));
             Run("invalid indicator factor leaves the marker unchanged", () =>
             {
                 var scaled = new TerrainIndicatorScale(4f, 4f, 1f).ScaleUniformly(float.NaN);

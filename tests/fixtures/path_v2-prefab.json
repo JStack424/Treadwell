@@ -16,6 +16,13 @@
     "active": false,
     "local_scale": [4.0, 4.0, 1.0],
     "local_rotation_quaternion_xyzw": [0.7071068286895752, 0.0, 0.0, 0.7071068286895752],
-    "components": ["Transform", "MeshFilter", "MeshRenderer"]
+    "components": ["Transform", "MeshFilter", "MeshRenderer"],
+    "particle_system": {
+      "name": "Particle System",
+      "direct_child_of_ghost_only": true,
+      "local_scale": [1.0, 1.0, 1.0],
+      "scaling_mode": "Local",
+      "scaling_mode_value": 1
+    }
   }
 }

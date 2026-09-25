@@ -6,6 +6,7 @@
     "Unity.TextMeshPro.dll": "ce029c08c09676b06614752c92956c51ee9ab6f77d9b7f42ce3a2924a765214e",
     "UnityEngine.CoreModule.dll": "4cb2a683351f6644de26086d01e7b5879fcf228ee0dbd0d7cc0536570bd15681",
     "UnityEngine.InputLegacyModule.dll": "aecfca1621312dda5435eb859aa595288e43eaa652c529d6e55afce42550e65e",
+    "UnityEngine.ParticleSystemModule.dll": "a22539050b1a166d69269d98430407989067319b9ca175304099ebf88678a0b7",
     "UnityEngine.UI.dll": "c3ee2e6256d356d512b7ee6fe56d3c6d52b2e0b97f0054fd60a0214b135cafc4",
     "UnityEngine.dll": "ee449f6c6d0a76826f4ef5b26cde9494b4500e9b0c9217508f2e3f3c50d3351c",
     "assembly_guiutils.dll": "5966a7ca268fb30c8cd625181e9cb26ee0deac0332a2504eaa6c220f66d23939",

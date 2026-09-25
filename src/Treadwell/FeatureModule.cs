@@ -125,8 +125,7 @@ namespace Treadwell
         private int _radiusValidationFrame = -1;
         private bool _radiusValidationResult;
         private GameObject _scaledPlacementGhost;
-        private Vector3 _scaledPlacementGhostBaseScale;
-        private Vector3 _scaledPlacementGhostAppliedScale;
+        private readonly List<ScaledIndicatorTransform> _scaledIndicatorTransforms = new List<ScaledIndicatorTransform>();
         private static int _suppressCameraMouseWheelDepth;
         private PieceTable _lastPieceTable;
         private bool _pavedSettingSubscribed;
@@ -312,6 +311,10 @@ namespace Treadwell
                 BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
             CompatibilityGate.RequireProperty(failures, typeof(Transform), "localScale", typeof(Vector3),
                 BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: true);
+            CompatibilityGate.RequireProperty(failures, typeof(ParticleSystem), "main", typeof(ParticleSystem.MainModule),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireProperty(failures, typeof(ParticleSystem.MainModule), "scalingMode", typeof(ParticleSystemScalingMode),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: true);
             CompatibilityGate.RequireMethod(failures, typeof(Transform), "Find", typeof(Transform),
                 BindingFlags.Instance | BindingFlags.Public, new[] { typeof(string) }, method => !method.IsStatic);
             CompatibilityGate.RequireProperty(failures, typeof(Time), "frameCount", typeof(int),
@@ -358,6 +361,7 @@ namespace Treadwell
             CompatibilityGate.RequireEnumValue(failures, typeof(TerrainModifier.PaintType), "Dirt", 0);
             CompatibilityGate.RequireEnumValue(failures, typeof(TerrainModifier.PaintType), "Cultivate", 1);
             CompatibilityGate.RequireEnumValue(failures, typeof(TerrainModifier.PaintType), "Paved", 2);
+            CompatibilityGate.RequireEnumValue(failures, typeof(ParticleSystemScalingMode), "Local", 1);
 
             CompatibilityGate.RequireColor(failures, "dirt paint", Heightmap.m_paintMaskDirt, 1f, 0f, 0f, 1f);
             CompatibilityGate.RequireColor(failures, "cultivated paint", Heightmap.m_paintMaskCultivated, 0f, 1f, 0f, 1f);
@@ -743,18 +747,23 @@ namespace Treadwell
             {
                 RestoreScaledPlacementGhost();
                 _scaledPlacementGhost = markerObject;
-                _scaledPlacementGhostBaseScale = marker.localScale;
+                _scaledIndicatorTransforms.Add(new ScaledIndicatorTransform(marker));
+                foreach (var particle in markerObject.GetComponentsInChildren<ParticleSystem>(true))
+                {
+                    if (particle == null || ReferenceEquals(particle.transform, marker) ||
+                        !TerrainIndicatorRouting.ShouldScaleOwnTransform(
+                            isGhostOnlyMarker: false,
+                            isLocalScalingParticle: particle.main.scalingMode == ParticleSystemScalingMode.Local))
+                    {
+                        continue;
+                    }
+                    _scaledIndicatorTransforms.Add(new ScaledIndicatorTransform(particle.transform));
+                }
             }
 
             var radius = _terrainRadii[binding.Kind];
             var scale = radius.ScaleFor(binding.VanillaRadius);
-            var applied = new TerrainIndicatorScale(
-                    _scaledPlacementGhostBaseScale.x,
-                    _scaledPlacementGhostBaseScale.y,
-                    _scaledPlacementGhostBaseScale.z)
-                .ScaleUniformly(scale);
-            _scaledPlacementGhostAppliedScale = new Vector3(applied.X, applied.Y, applied.Z);
-            marker.localScale = _scaledPlacementGhostAppliedScale;
+            foreach (var target in _scaledIndicatorTransforms) target.Apply(scale);
             binding.IndicatorSynchronized = true;
             return true;
         }
@@ -778,7 +787,7 @@ namespace Treadwell
             }
             if (!HasExpectedVanillaRadii(binding.Kind, binding.TerrainOp.m_settings) ||
                 _scaledPlacementGhost == null || !_scaledPlacementGhost.activeInHierarchy ||
-                !Approximately(_scaledPlacementGhost.transform.localScale, _scaledPlacementGhostAppliedScale))
+                !AreIndicatorTransformsApplied())
             {
                 return null;
             }
@@ -816,18 +825,22 @@ namespace Treadwell
             _suppressCameraMouseWheelDepth = 0;
         }
 
+        private bool AreIndicatorTransformsApplied()
+        {
+            if (_scaledIndicatorTransforms.Count == 0) return false;
+            foreach (var target in _scaledIndicatorTransforms)
+            {
+                if (!target.IsApplied()) return false;
+            }
+            return true;
+        }
+
         private void RestoreScaledPlacementGhost()
         {
-            if (_scaledPlacementGhost != null)
-            {
-                var transform = _scaledPlacementGhost.transform;
-                if (Approximately(transform.localScale, _scaledPlacementGhostAppliedScale))
-                    transform.localScale = _scaledPlacementGhostBaseScale;
-            }
+            foreach (var target in _scaledIndicatorTransforms) target.Restore();
             foreach (var binding in _terrainBrushes.Values) binding.IndicatorSynchronized = false;
+            _scaledIndicatorTransforms.Clear();
             _scaledPlacementGhost = null;
-            _scaledPlacementGhostBaseScale = default(Vector3);
-            _scaledPlacementGhostAppliedScale = default(Vector3);
         }
 
         private static bool Approximately(float left, float right)
@@ -1074,6 +1087,37 @@ namespace Treadwell
             if (string.IsNullOrEmpty(value)) return "<none>";
             var safe = value.Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
             return safe.Length <= 64 ? safe : safe.Substring(0, 64) + "...";
+        }
+
+        private sealed class ScaledIndicatorTransform
+        {
+            private readonly Transform _transform;
+            private readonly Vector3 _baseScale;
+            private Vector3 _appliedScale;
+
+            internal ScaledIndicatorTransform(Transform transform)
+            {
+                _transform = transform ?? throw new ArgumentNullException(nameof(transform));
+                _baseScale = transform.localScale;
+                _appliedScale = _baseScale;
+            }
+
+            internal void Apply(float factor)
+            {
+                var applied = new TerrainIndicatorScale(_baseScale.x, _baseScale.y, _baseScale.z)
+                    .ScaleUniformly(factor);
+                _appliedScale = new Vector3(applied.X, applied.Y, applied.Z);
+                _transform.localScale = _appliedScale;
+            }
+
+            internal bool IsApplied()
+                => _transform != null && Approximately(_transform.localScale, _appliedScale);
+
+            internal void Restore()
+            {
+                if (_transform != null && Approximately(_transform.localScale, _appliedScale))
+                    _transform.localScale = _baseScale;
+            }
         }
 
         private sealed class TerrainBrushBinding
