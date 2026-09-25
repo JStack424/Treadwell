@@ -204,14 +204,145 @@ namespace Treadwell.Core
         }
     }
 
-    public static class TerrainMutationRouting
+    public interface ITerrainRadiusMutationTarget
     {
-        public static bool ContainsReference<T>(IEnumerable<T> targets, T candidate) where T : class
+        object Identity { get; }
+        bool LevelActive { get; }
+        bool RaiseActive { get; }
+        bool SmoothActive { get; }
+        bool PaintActive { get; }
+        float LevelRadius { get; set; }
+        float RaiseRadius { get; set; }
+        float SmoothRadius { get; set; }
+        float PaintRadius { get; set; }
+    }
+
+    public sealed class TerrainRadiusMutationSession
+    {
+        private readonly List<TargetState> _targets = new List<TargetState>();
+
+        public TerrainRadiusMutationSession(IEnumerable<ITerrainRadiusMutationTarget> targets)
         {
-            if (targets == null || candidate == null) return false;
+            if (targets == null) throw new ArgumentNullException(nameof(targets));
             foreach (var target in targets)
-                if (ReferenceEquals(target, candidate)) return true;
-            return false;
+            {
+                if (target == null || target.Identity == null)
+                    throw new ArgumentNullException(nameof(targets));
+
+                var duplicate = false;
+                foreach (var existing in _targets)
+                {
+                    if (!ReferenceEquals(existing.Target.Identity, target.Identity)) continue;
+                    duplicate = true;
+                    break;
+                }
+                if (!duplicate) _targets.Add(new TargetState(target));
+            }
+            if (_targets.Count == 0) throw new ArgumentException("At least one terrain-radius target is required.", nameof(targets));
+        }
+
+        public int TargetCount => _targets.Count;
+
+        public void Apply(float targetRadius)
+        {
+            try
+            {
+                foreach (var target in _targets) target.Apply(targetRadius);
+            }
+            catch
+            {
+                Restore();
+                throw;
+            }
+        }
+
+        public bool Restore()
+        {
+            var conflict = false;
+            foreach (var target in _targets) conflict |= target.Restore();
+            return conflict;
+        }
+
+        private sealed class TargetState
+        {
+            private const float Epsilon = 0.0001f;
+            private readonly bool _levelActive;
+            private readonly bool _raiseActive;
+            private readonly bool _smoothActive;
+            private readonly bool _paintActive;
+            private readonly TerrainRadiusValues _original;
+            private TerrainRadiusValues _applied;
+            private bool _levelApplied;
+            private bool _raiseApplied;
+            private bool _smoothApplied;
+            private bool _paintApplied;
+
+            internal TargetState(ITerrainRadiusMutationTarget target)
+            {
+                Target = target;
+                _levelActive = target.LevelActive;
+                _raiseActive = target.RaiseActive;
+                _smoothActive = target.SmoothActive;
+                _paintActive = target.PaintActive;
+                _original = new TerrainRadiusValues(
+                    target.LevelRadius,
+                    target.RaiseRadius,
+                    target.SmoothRadius,
+                    target.PaintRadius);
+            }
+
+            internal ITerrainRadiusMutationTarget Target { get; }
+
+            internal void Apply(float targetRadius)
+            {
+                _applied = _original.ScaleActive(
+                    _levelActive, _raiseActive, _smoothActive, _paintActive, targetRadius);
+                if (_levelActive)
+                {
+                    Target.LevelRadius = _applied.Level;
+                    _levelApplied = true;
+                }
+                if (_raiseActive)
+                {
+                    Target.RaiseRadius = _applied.Raise;
+                    _raiseApplied = true;
+                }
+                if (_smoothActive)
+                {
+                    Target.SmoothRadius = _applied.Smooth;
+                    _smoothApplied = true;
+                }
+                if (_paintActive)
+                {
+                    Target.PaintRadius = _applied.Paint;
+                    _paintApplied = true;
+                }
+            }
+
+            internal bool Restore()
+            {
+                var conflict = false;
+                conflict |= RestoreField(_levelApplied, () => Target.LevelRadius, value => Target.LevelRadius = value, _applied.Level, _original.Level);
+                conflict |= RestoreField(_raiseApplied, () => Target.RaiseRadius, value => Target.RaiseRadius = value, _applied.Raise, _original.Raise);
+                conflict |= RestoreField(_smoothApplied, () => Target.SmoothRadius, value => Target.SmoothRadius = value, _applied.Smooth, _original.Smooth);
+                conflict |= RestoreField(_paintApplied, () => Target.PaintRadius, value => Target.PaintRadius = value, _applied.Paint, _original.Paint);
+                _levelApplied = false;
+                _raiseApplied = false;
+                _smoothApplied = false;
+                _paintApplied = false;
+                return conflict;
+            }
+
+            private static bool RestoreField(bool applied, Func<float> read, Action<float> write, float appliedValue, float originalValue)
+            {
+                if (!applied) return false;
+                if (!Approximately(read(), appliedValue)) return true;
+                write(originalValue);
+                return false;
+            }
+
+            private static bool Approximately(float left, float right)
+                => !float.IsNaN(left) && !float.IsNaN(right) && Math.Abs(left - right) <= Epsilon;
         }
     }
 

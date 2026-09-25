@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Reflection;
+using System.Text.Json;
 using Treadwell.Core;
 
 namespace Treadwell.Tests
@@ -451,9 +453,29 @@ namespace Treadwell.Tests
                 Equal(true, TerrainIndicatorRouting.CanSynchronize(markerExists: true, activeInHierarchy: false)));
             Run("missing marker fails closed", () =>
                 Equal(false, TerrainIndicatorRouting.CanSynchronize(markerExists: false, activeInHierarchy: true)));
-            Run("extracted Pathen marker scales uniformly from four-four-one", () =>
+            Run("pinned Pathen prefab evidence proves the inactive rotated direct marker", () =>
             {
-                var scaled = new TerrainIndicatorScale(4f, 4f, 1f).ScaleUniformly(2.5f);
+                var fixturePath = Path.Combine(AppContext.BaseDirectory, "fixtures", "path_v2-prefab.json");
+                using var fixture = JsonDocument.Parse(File.ReadAllText(fixturePath));
+                var root = fixture.RootElement.GetProperty("root");
+                var marker = fixture.RootElement.GetProperty("ghost_only");
+                Equal("path_v2", root.GetProperty("name").GetString()!);
+                Equal(true, root.GetProperty("active").GetBoolean());
+                Equal("_GhostOnly", marker.GetProperty("name").GetString()!);
+                Equal(true, marker.GetProperty("direct_child_of_root").GetBoolean());
+                Equal(false, marker.GetProperty("active").GetBoolean());
+                var scale = marker.GetProperty("local_scale");
+                Near(4f, scale[0].GetSingle());
+                Near(4f, scale[1].GetSingle());
+                Near(1f, scale[2].GetSingle());
+                var rotation = marker.GetProperty("local_rotation_quaternion_xyzw");
+                Near(0.7071068f, rotation[0].GetSingle());
+                Near(0f, rotation[1].GetSingle());
+                Near(0f, rotation[2].GetSingle());
+                Near(0.7071068f, rotation[3].GetSingle());
+
+                var scaled = new TerrainIndicatorScale(
+                    scale[0].GetSingle(), scale[1].GetSingle(), scale[2].GetSingle()).ScaleUniformly(2.5f);
                 Near(10f, scaled.X);
                 Near(10f, scaled.Y);
                 Near(2.5f, scaled.Z);
@@ -465,16 +487,70 @@ namespace Treadwell.Tests
                 Near(4f, scaled.Y);
                 Near(1f, scaled.Z);
             });
-            Run("same settings reference is recognized for mutation deduplication", () =>
+            Run("dual-source mutation applies and restores both settings objects", () =>
             {
-                var settings = new object();
-                Equal(true, TerrainMutationRouting.ContainsReference(new[] { settings }, settings));
+                var selected = FakeTerrainRadiusTarget.Pathen();
+                var registered = FakeTerrainRadiusTarget.Pathen();
+                var mutation = new TerrainRadiusMutationSession(new[] { selected, registered });
+                Equal(2, mutation.TargetCount);
+                mutation.Apply(5f);
+                Near(5f, selected.PaintRadius);
+                Near(5f, registered.PaintRadius);
+                Equal(false, mutation.Restore());
+                Near(2f, selected.PaintRadius);
+                Near(2f, registered.PaintRadius);
             });
-            Run("distinct settings references are retained for dual-source mutation", () =>
+            Run("shared settings identity is mutated only once", () =>
             {
-                var selected = new object();
-                var registered = new object();
-                Equal(false, TerrainMutationRouting.ContainsReference(new[] { selected }, registered));
+                var settings = FakeTerrainRadiusTarget.Pathen();
+                var mutation = new TerrainRadiusMutationSession(new[] { settings, settings });
+                Equal(1, mutation.TargetCount);
+                mutation.Apply(4f);
+                Near(4f, settings.PaintRadius);
+                Equal(false, mutation.Restore());
+                Near(2f, settings.PaintRadius);
+            });
+            Run("restoration preserves a conflicting runtime field", () =>
+            {
+                var settings = FakeTerrainRadiusTarget.PavedRoad();
+                var mutation = new TerrainRadiusMutationSession(new[] { settings });
+                mutation.Apply(6f);
+                Near(6f, settings.SmoothRadius);
+                Near(4.4f, settings.PaintRadius);
+                settings.PaintRadius = 9f;
+                Equal(true, mutation.Restore());
+                Near(3f, settings.SmoothRadius);
+                Near(9f, settings.PaintRadius);
+            });
+            Run("mutation never changes disabled terrain channels", () =>
+            {
+                var settings = FakeTerrainRadiusTarget.Pathen();
+                settings.LevelRadius = 5f;
+                settings.RaiseRadius = 6f;
+                settings.SmoothRadius = 7f;
+                var mutation = new TerrainRadiusMutationSession(new[] { settings });
+                mutation.Apply(4f);
+                Near(5f, settings.LevelRadius);
+                Near(6f, settings.RaiseRadius);
+                Near(7f, settings.SmoothRadius);
+                Near(4f, settings.PaintRadius);
+                mutation.Restore();
+            });
+            Run("partial application rolls back fields already changed", () =>
+            {
+                var settings = FakeTerrainRadiusTarget.LevelGround();
+                settings.ThrowOnPaintWrite = true;
+                var mutation = new TerrainRadiusMutationSession(new[] { settings });
+                try
+                {
+                    mutation.Apply(6f);
+                    throw new InvalidOperationException("Expected the injected paint write failure.");
+                }
+                catch (ApplicationException)
+                {
+                    Near(3f, settings.SmoothRadius);
+                    Near(3f, settings.PaintRadius);
+                }
             });
             Run("invalid indicator baseline fails closed to unit scale", () =>
                 Near(1f, new TerrainRadiusSelection(4f).ScaleFor(0f)));
@@ -659,6 +735,57 @@ namespace Treadwell.Tests
             }
 
             internal string? Identity { get; }
+        }
+
+        private sealed class FakeTerrainRadiusTarget : ITerrainRadiusMutationTarget
+        {
+            private float _paintRadius;
+
+            private FakeTerrainRadiusTarget()
+            {
+                Identity = new object();
+            }
+
+            internal static FakeTerrainRadiusTarget Pathen() => new FakeTerrainRadiusTarget
+            {
+                PaintActive = true,
+                PaintRadius = 2f
+            };
+
+            internal static FakeTerrainRadiusTarget PavedRoad() => new FakeTerrainRadiusTarget
+            {
+                SmoothActive = true,
+                PaintActive = true,
+                SmoothRadius = 3f,
+                PaintRadius = 2.2f
+            };
+
+            internal static FakeTerrainRadiusTarget LevelGround() => new FakeTerrainRadiusTarget
+            {
+                SmoothActive = true,
+                PaintActive = true,
+                SmoothRadius = 3f,
+                PaintRadius = 3f
+            };
+
+            public object Identity { get; }
+            public bool LevelActive { get; set; }
+            public bool RaiseActive { get; set; }
+            public bool SmoothActive { get; set; }
+            public bool PaintActive { get; set; }
+            public float LevelRadius { get; set; }
+            public float RaiseRadius { get; set; }
+            public float SmoothRadius { get; set; }
+            public float PaintRadius
+            {
+                get => _paintRadius;
+                set
+                {
+                    if (ThrowOnPaintWrite) throw new ApplicationException("Injected paint write failure.");
+                    _paintRadius = value;
+                }
+            }
+            internal bool ThrowOnPaintWrite { get; set; }
         }
 
         private static void Run(string name, Action test)

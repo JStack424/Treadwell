@@ -4,7 +4,7 @@
 
 - Corrected Pathen's placement-indicator lifecycle after inspecting the exact Valheim 1.0.14 `path_v2` prefab: its direct `_GhostOnly` child is serialized inactive, rotated 90 degrees, and uses a 4×4×1 local scale. Treadwell now scales that transform before activation instead of rejecting it while inactive.
 - Corrected terrain-operation execution after tracing `Player.PlacePiece` → `TerrainOp.Awake` → `TerrainComp.ApplyOperation` → `TerrainOp.Settings.Deserialize`: Valheim uses the selected prefab to size the initial heightmap search but resolves the applied settings again from `ObjectDB` by prefab identity. Treadwell now mutates both exact settings sources during the synchronous placement call and restores both in the finalizer, deduplicating shared references.
-- Added regression coverage for Pathen's extracted inactive marker shape, uniform 4×4×1 scaling, invalid marker factors, and the exact terrain-RPC/ObjectDB resolution path in the pinned 1.0.14 assembly.
+- Retained a hash-pinned extraction record for Pathen's direct inactive, rotated 4×4×1 marker and added executable coverage for the actual dual-source mutation session: distinct and shared settings, disabled channels, conflict-safe restoration, partial-application rollback, uniform marker scaling, and the exact terrain-RPC/ObjectDB resolution path.
 - Preserved the confirmed Alt-wheel camera-zoom suppression, Level Ground's 1–8 m range, Pathen/Paved Road's 1–10 m ranges, Paved Road's 2.2:3 paint-to-smooth ratio, Raise Ground exclusion, per-action session-only radii, and every 0.1.2 road feature.
 - This remains a local test candidate. Pathen and remote-owner/multiplayer radius propagation remain explicitly live-unverified.
 

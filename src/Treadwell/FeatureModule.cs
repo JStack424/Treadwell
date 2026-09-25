@@ -1095,110 +1095,50 @@ namespace Treadwell
 
         private sealed class RadiusMutation
         {
-            private readonly List<RadiusMutationTarget> _targets = new List<RadiusMutationTarget>();
+            private readonly TerrainRadiusMutationSession _session;
 
             internal RadiusMutation(params TerrainOp[] terrainOps)
             {
                 if (terrainOps == null || terrainOps.Length == 0)
                     throw new ArgumentNullException(nameof(terrainOps));
 
+                var targets = new List<ITerrainRadiusMutationTarget>();
                 foreach (var terrainOp in terrainOps)
                 {
                     if (terrainOp == null || terrainOp.m_settings == null)
                         throw new ArgumentNullException(nameof(terrainOps));
-                    if (!TerrainMutationRouting.ContainsReference(
-                            _targets.ConvertAll(target => target.Settings), terrainOp.m_settings))
-                        _targets.Add(new RadiusMutationTarget(terrainOp.m_settings));
+                    targets.Add(new TerrainOpSettingsTarget(terrainOp.m_settings));
                 }
+                _session = new TerrainRadiusMutationSession(targets);
             }
 
-            internal void Apply(float targetRadius)
-            {
-                try
-                {
-                    foreach (var target in _targets) target.Apply(targetRadius);
-                }
-                catch
-                {
-                    Restore(null);
-                    throw;
-                }
-            }
+            internal void Apply(float targetRadius) => _session.Apply(targetRadius);
 
             internal void Restore(ManualLogSource log)
             {
-                var conflict = false;
-                foreach (var target in _targets)
-                    conflict |= target.Restore();
-                if (conflict) log?.LogWarning("A terrain-radius field changed during placement; Treadwell left that conflicting field untouched.");
+                if (_session.Restore())
+                    log?.LogWarning("A terrain-radius field changed during placement; Treadwell left that conflicting field untouched.");
             }
         }
 
-        private sealed class RadiusMutationTarget
+        private sealed class TerrainOpSettingsTarget : ITerrainRadiusMutationTarget
         {
-            private readonly bool _levelActive;
-            private readonly bool _raiseActive;
-            private readonly bool _smoothActive;
-            private readonly bool _paintActive;
-            private readonly TerrainRadiusValues _original;
-            private TerrainRadiusValues _applied;
-            private bool _isApplied;
+            private readonly TerrainOp.Settings _settings;
 
-            internal RadiusMutationTarget(TerrainOp.Settings settings)
+            internal TerrainOpSettingsTarget(TerrainOp.Settings settings)
             {
-                Settings = settings ?? throw new ArgumentNullException(nameof(settings));
-                _levelActive = Settings.m_level;
-                _raiseActive = Settings.m_raise;
-                _smoothActive = Settings.m_smooth;
-                _paintActive = Settings.m_paintCleared;
-                _original = new TerrainRadiusValues(
-                    Settings.m_levelRadius,
-                    Settings.m_raiseRadius,
-                    Settings.m_smoothRadius,
-                    Settings.m_paintRadius);
+                _settings = settings ?? throw new ArgumentNullException(nameof(settings));
             }
 
-            internal TerrainOp.Settings Settings { get; }
-
-            internal void Apply(float targetRadius)
-            {
-                _applied = _original.ScaleActive(
-                    _levelActive, _raiseActive, _smoothActive, _paintActive, targetRadius);
-                if (_levelActive) Settings.m_levelRadius = _applied.Level;
-                if (_raiseActive) Settings.m_raiseRadius = _applied.Raise;
-                if (_smoothActive) Settings.m_smoothRadius = _applied.Smooth;
-                if (_paintActive) Settings.m_paintRadius = _applied.Paint;
-                _isApplied = true;
-            }
-
-            internal bool Restore()
-            {
-                if (!_isApplied) return false;
-
-                var conflict = false;
-                if (_levelActive)
-                {
-                    if (Approximately(Settings.m_levelRadius, _applied.Level)) Settings.m_levelRadius = _original.Level;
-                    else conflict = true;
-                }
-                if (_raiseActive)
-                {
-                    if (Approximately(Settings.m_raiseRadius, _applied.Raise)) Settings.m_raiseRadius = _original.Raise;
-                    else conflict = true;
-                }
-                if (_smoothActive)
-                {
-                    if (Approximately(Settings.m_smoothRadius, _applied.Smooth)) Settings.m_smoothRadius = _original.Smooth;
-                    else conflict = true;
-                }
-                if (_paintActive)
-                {
-                    if (Approximately(Settings.m_paintRadius, _applied.Paint)) Settings.m_paintRadius = _original.Paint;
-                    else conflict = true;
-                }
-                _isApplied = false;
-                return conflict;
-            }
+            public object Identity => _settings;
+            public bool LevelActive => _settings.m_level;
+            public bool RaiseActive => _settings.m_raise;
+            public bool SmoothActive => _settings.m_smooth;
+            public bool PaintActive => _settings.m_paintCleared;
+            public float LevelRadius { get => _settings.m_levelRadius; set => _settings.m_levelRadius = value; }
+            public float RaiseRadius { get => _settings.m_raiseRadius; set => _settings.m_raiseRadius = value; }
+            public float SmoothRadius { get => _settings.m_smoothRadius; set => _settings.m_smoothRadius = value; }
+            public float PaintRadius { get => _settings.m_paintRadius; set => _settings.m_paintRadius = value; }
         }
 
         private sealed class PieceTableEntryInspection

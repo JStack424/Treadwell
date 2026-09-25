@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/$(ModIdentifier).Core/$(ModIdentifier).Core.csproj" />
+    <None Include="../fixtures/path_v2-prefab.json" Link="fixtures/path_v2-prefab.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

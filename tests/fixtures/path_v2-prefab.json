@@ -1,0 +1,21 @@
+{
+  "valheim_version": "1.0.14",
+  "steam_build": "25364309",
+  "assembly_valheim_sha256": "e5af0669755ed3b098f71b4dd0753f8a997761b99bca1e8dac3d5ca4c706a0be",
+  "bundle": "valheim_server_Data/StreamingAssets/SoftRef/Bundles/c4210710",
+  "bundle_sha256": "3e0fdea256d9c76b8c11d2f4e944144bcda81f2e7888ad4d166bd5ed79e3d593",
+  "asset": "Assets/GameElements/Pieces/path_v2.prefab",
+  "root": {
+    "name": "path_v2",
+    "active": true,
+    "local_scale": [1.0, 1.0, 1.0]
+  },
+  "ghost_only": {
+    "name": "_GhostOnly",
+    "direct_child_of_root": true,
+    "active": false,
+    "local_scale": [4.0, 4.0, 1.0],
+    "local_rotation_quaternion_xyzw": [0.7071068286895752, 0.0, 0.0, 0.7071068286895752],
+    "components": ["Transform", "MeshFilter", "MeshRenderer"]
+  }
+}

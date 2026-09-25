@@ -224,7 +224,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "new TerrainIndicatorScale", "mutation.Apply(radius.Radius)",
             "ObjectDB.instance", "TryGetTerrainOp(piece.gameObject.name", "registeredTerrainOp",
             "new RadiusMutation(binding.TerrainOp, registeredTerrainOp)",
-            "TerrainMutationRouting.ContainsReference", "target.Restore()",
+            "new TerrainRadiusMutationSession(targets)", "_session.Restore()",
+            "TerrainOpSettingsTarget", "ITerrainRadiusMutationTarget",
             "RevalidateTerrainRadiusBindings(force: false)", "RevalidateTerrainRadiusBindings(force: true)",
             "InspectPieceTable(_radiusPieceTable)", "if (pair.Value.Count != 1) return false;",
             "ReferenceEquals(binding.TerrainOp, entry.TerrainOps[0])",
@@ -253,11 +254,24 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "Paved Road smooth and paint radii preserve their vanilla ratio",
             "Pathen changes only its active paint radius",
             "inactive vanilla marker remains eligible for transform synchronization",
-            "extracted Pathen marker scales uniformly from four-four-one",
-            "same settings reference is recognized for mutation deduplication",
-            "distinct settings references are retained for dual-source mutation",
+            "pinned Pathen prefab evidence proves the inactive rotated direct marker",
+            "dual-source mutation applies and restores both settings objects",
+            "shared settings identity is mutated only once",
+            "restoration preserves a conflicting runtime field",
+            "mutation never changes disabled terrain channels",
+            "partial application rolls back fields already changed",
         ):
             self.assertIn(exclusion, tests)
+        fixture = json.loads((ROOT / "tests" / "fixtures" / "path_v2-prefab.json").read_text())
+        self.assertEqual("3e0fdea256d9c76b8c11d2f4e944144bcda81f2e7888ad4d166bd5ed79e3d593", fixture["bundle_sha256"])
+        self.assertEqual("Assets/GameElements/Pieces/path_v2.prefab", fixture["asset"])
+        self.assertEqual("_GhostOnly", fixture["ghost_only"]["name"])
+        self.assertTrue(fixture["ghost_only"]["direct_child_of_root"])
+        self.assertFalse(fixture["ghost_only"]["active"])
+        self.assertEqual([4.0, 4.0, 1.0], fixture["ghost_only"]["local_scale"])
+        contract = (ROOT / "docs" / "ASSEMBLY-CONTRACT.md").read_text()
+        self.assertIn("tests/fixtures/path_v2-prefab.json", contract)
+        self.assertIn("both the selected piece-table prefab and the matching `ObjectDB`", contract)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
 
     def test_pinned_provenance_is_checked_offline_and_runtime_contract_is_shape_based(self):
