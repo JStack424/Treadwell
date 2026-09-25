@@ -87,7 +87,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "PlayerSetPlaceModePrefix", "PieceTableUpdateAvailablePrefix", "PlayerHaveRequirementsPrefix",
             "PlayerUpdatePlacementPrefix", "PlayerPlacePiecePrefix", "PlayerPlacePieceFinalizer",
             "TerrainCompDoOperationPrefix", "TerrainCompDoOperationFinalizer",
-            "GameCameraUpdateCameraPrefix", "GameCameraUpdateCameraFinalizer", "ZInputGetMouseScrollWheelPrefix", "ZNetSceneOnDestroyPrefix", "GetRunSpeedFactorPostfix",
+            "GameCameraUpdateCameraPrefix", "GameCameraUpdateCameraFinalizer", "ZInputGetMouseScrollWheelPrefix", "KeyHintsUpdateHintsPostfix", "ZNetSceneOnDestroyPrefix", "GetRunSpeedFactorPostfix",
             "ModifyRunStaminaDrainPostfix",
         ):
             self.assertIn("RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(" + patch + ")", module)
@@ -116,13 +116,27 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             'typeof(Color), "b"', 'typeof(Color), "a"', 'typeof(UnityEngine.Object), "op_Equality"',
             'typeof(UnityEngine.Object), "op_Inequality"', 'typeof(Harmony), "Patch"',
             'typeof(Harmony), "UnpatchSelf"', 'typeof(AccessTools), "DeclaredMethod"',
-            'typeof(Transform), "localScale"', 'typeof(Transform), "Find"',
-            'typeof(Time), "frameCount"', 'typeof(GameCamera), "UpdateCamera"', 'typeof(TerrainComp), "DoOperation"', 'typeof(ZInput), "GetKey"',
+            'typeof(Transform), "localScale"', 'typeof(Transform), "parent"', 'typeof(Transform), "Find"', 'typeof(Transform), "SetAsLastSibling"',
+            'typeof(GameObject), "transform"', 'typeof(GameObject), "SetActive"', 'typeof(UnityEngine.Object), "Instantiate"', 'typeof(TMP_Text), "text"',
+            'typeof(Localization), "instance"', 'typeof(Localization), "RemoveTextFromCache"',
+            'typeof(Time), "frameCount"', 'typeof(GameCamera), "UpdateCamera"', 'typeof(TerrainComp), "DoOperation"', 'typeof(KeyHints), "UpdateHints"',
+            'typeof(KeyHints), "m_buildHints"', 'typeof(KeyHints), "m_buildAlternativePlacingKey"', 'typeof(ZInput), "GetKey"', 'typeof(ZInput), "IsGamepadActive"',
             'typeof(ZInput), "GetMouseScrollWheel"', 'typeof(Hud), "IsPieceSelectionVisible"',
         ):
             self.assertIn(runtime_contract, module)
         self.assertIn("TransactionalInstall.Run", module)
         self.assertIn("_harmony?.UnpatchSelf()", module)
+        self.assertIn("TryInstallTerrainRadiusControlHint", module)
+        self.assertIn("ValidateTerrainRadiusControlHintCompatibility", module)
+        self.assertIn("_radiusControlHintHarmony.UnpatchSelf()", module)
+        self.assertIn("gameplay remains active", module)
+        hard_gate = module[module.index("public override void ValidateCompatibility"):module.index("protected override void InstallPatches")]
+        for optional_ui_contract in (
+            'typeof(KeyHints), "UpdateHints"', 'typeof(KeyHints), "m_buildHints"',
+            'typeof(KeyHints), "m_buildAlternativePlacingKey"', 'typeof(ZInput), "IsGamepadActive"',
+            'typeof(Localization), "RemoveTextFromCache"',
+        ):
+            self.assertNotIn(optional_ui_contract, hard_gate)
         self.assertIn("foreach (var rollback in rollbackSteps)", runtime_safety)
         self.assertIn("failed install executes every rollback step", core_tests)
         self.assertIn("runtime method shape mismatch is rejected", core_tests)
@@ -222,6 +236,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
 
     def test_radius_controls_are_narrow_synchronized_and_transactional(self):
         module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
+        hint = (PLUGIN_DIR / "TerrainRadiusControlHint.cs").read_text()
         core = (ROOT / "src" / f"{IDENTIFIER}.Core" / "TerrainRadiusLogic.cs").read_text()
         tests = (ROOT / "tests" / f"{IDENTIFIER}.Tests" / "Program.cs").read_text()
         for marker in (
@@ -243,6 +258,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "RevalidateTerrainRadiusBindings(force: false)", "RevalidateTerrainRadiusBindings(force: true)",
             "InspectPieceTable(_radiusPieceTable)", "if (pair.Value.Count != 1) return false;",
             "ReferenceEquals(binding.TerrainOp, entry.TerrainOps[0])",
+            "KeyHintsUpdateHintsPostfix", "ShouldShowTerrainRadiusControlHint", "ZInput.IsGamepadActive()",
+            "TerrainRadiusControlHintRouting.ShouldShow", "_radiusControlHint.Update", "_radiusControlHint.Detach",
             "__state?.Restore", "ResetTerrainRadiusRuntime", "binding.VanillaRadius",
         ):
             self.assertIn(marker, module)
@@ -261,6 +278,27 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn('string.Equals(name, "_HoePieceTable", StringComparison.Ordinal)', module)
         self.assertIn('string.Equals(name, "_HoePieceTable(Clone)", StringComparison.Ordinal)', module)
         self.assertNotIn("_suppressMouseWheelFrame", module)
+        for marker in (
+            'ObjectName = "TreadwellTerrainRadiusControlHint"', 'ActionText = "Change Size"',
+            'ShortcutText = "Alt + Scroll"', "owner.m_buildHints", "owner.m_buildAlternativePlacingKey",
+            "template.transform.parent", "BelongsToBuildHintRow", "hint.transform.SetAsLastSibling()", "hint.SetActive(false)",
+            "GetComponent<TMP_Text>()", "Localization.instance?.RemoveTextFromCache(label)",
+            'label.text = ShortcutText + " — " + ActionText',
+            "UnityEngine.Object.Destroy(hint)", "DestroyStaleOwnedHints", "FailForOwner",
+        ):
+            self.assertIn(marker, hint)
+        self.assertNotIn("m_buildMenuHintsKB", hint)
+        self.assertNotIn("m_buildMenuHintsGP", hint)
+        self.assertNotRegex(hint, r"new\s+GameObject|AddComponent")
+        self.assertIn("selectedBrush == TerrainBrushKind.LevelGround", core)
+        self.assertIn("selectedBrush == TerrainBrushKind.Pathen", core)
+        self.assertIn("selectedBrush == TerrainBrushKind.PavedRoad", core)
+        hint_query = module[module.index("private bool ShouldShowTerrainRadiusControlHint"):
+                            module.index("private bool ShouldSuppressCameraZoom")]
+        self.assertIn("_radiusValidationResult", hint_query)
+        self.assertIn("_terrainBrushes.Count == 3", hint_query)
+        self.assertNotIn("RefreshTerrainRadiusBrushes", hint_query)
+        self.assertNotIn("RevalidateTerrainRadiusBindings", hint_query)
         for exclusion in (
             "Raise Ground is excluded", "cultivator paint is excluded", "Pathen live shape tolerates Valheim prefab object renaming",
             "ordinary hammer piece is excluded", "legacy TerrainModifier addition is excluded",
@@ -283,6 +321,13 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "restoration preserves a conflicting runtime field",
             "mutation never changes disabled terrain channels",
             "partial application rolls back fields already changed",
+            "brush-size hint appears for an exact eligible keyboard selection",
+            "brush-size hint supports Pathen and Paved Road",
+            "brush-size hint excludes Raise Ground and unrelated actions",
+            "brush-size hint is not added to controller controls",
+            "brush-size hint is hidden while the piece selector is open",
+            "brush-size hint fails closed for invalid brush bindings",
+            "brush-size hint is hidden outside live placement",
         ):
             self.assertIn(exclusion, tests)
         fixture = json.loads((ROOT / "tests" / "fixtures" / "path_v2-prefab.json").read_text())
@@ -317,7 +362,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "InPlaceMode", "IsDead", "GetSelectedPiece", "GetRadius", "TryGetTerrainOp",
             "RPC_ApplyOperation", "DoOperation", "InternalDoOperation", "ResetGrass", "IsOwner", "Serialize", "Deserialize",
             "UpdateWalking", "CheckRun", "GetRunSpeedFactor", "ModifyRunStaminaDrain", "UseStamina",
-            "CurrentGameVersion", "GetPaintMask", "m_character",
+            "CurrentGameVersion", "GetPaintMask", "m_character", "KeyHints", "UpdateHints", "IsGamepadActive",
+            "m_buildHints", "m_buildAlternativePlacingKey",
             "m_localPlayer", "m_placementGhost", "m_pieces", "m_craftingStation", "m_resources", "m_resItem", "m_amount",
             "m_paintType", "m_levelRadius", "m_smoothRadius", "m_paintRadius", "GetComponent",
             "m_paintMaskDirt", "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType", "Instantiate",

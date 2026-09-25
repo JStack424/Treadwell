@@ -736,6 +736,41 @@ namespace Treadwell.Tests
                     .ScaleActive(false, false, false, true, radius.Radius);
                 Near(5f, scaled.Paint);
             });
+            Run("brush-size hint appears for an exact eligible keyboard selection", () =>
+                Equal(true, TerrainRadiusControlHintRouting.ShouldShow(
+                    true, true, false, false, false, true, TerrainBrushKind.LevelGround)));
+            Run("brush-size hint supports Pathen and Paved Road", () =>
+            {
+                Equal(true, TerrainRadiusControlHintRouting.ShouldShow(
+                    true, true, false, false, false, true, TerrainBrushKind.Pathen));
+                Equal(true, TerrainRadiusControlHintRouting.ShouldShow(
+                    true, true, false, false, false, true, TerrainBrushKind.PavedRoad));
+            });
+            Run("brush-size hint excludes Raise Ground and unrelated actions", () =>
+            {
+                Equal(false, TerrainRadiusControlHintRouting.ShouldShow(
+                    true, true, false, false, false, true, TerrainBrushKind.None));
+                Equal(false, TerrainRadiusControlHintRouting.ShouldShow(
+                    true, true, false, false, false, true, (TerrainBrushKind)99));
+            });
+            Run("brush-size hint is not added to controller controls", () =>
+                Equal(false, TerrainRadiusControlHintRouting.ShouldShow(
+                    true, true, false, true, false, true, TerrainBrushKind.LevelGround)));
+            Run("brush-size hint is hidden while the piece selector is open", () =>
+                Equal(false, TerrainRadiusControlHintRouting.ShouldShow(
+                    true, true, false, false, true, true, TerrainBrushKind.LevelGround)));
+            Run("brush-size hint fails closed for invalid brush bindings", () =>
+                Equal(false, TerrainRadiusControlHintRouting.ShouldShow(
+                    true, true, false, false, false, false, TerrainBrushKind.LevelGround)));
+            Run("brush-size hint is hidden outside live placement", () =>
+            {
+                Equal(false, TerrainRadiusControlHintRouting.ShouldShow(
+                    false, true, false, false, false, true, TerrainBrushKind.LevelGround));
+                Equal(false, TerrainRadiusControlHintRouting.ShouldShow(
+                    true, false, false, false, false, true, TerrainBrushKind.LevelGround));
+                Equal(false, TerrainRadiusControlHintRouting.ShouldShow(
+                    true, true, true, false, false, true, TerrainBrushKind.LevelGround));
+            });
             Run("camera wheel is suppressed for successful Alt hoe adjustments", () =>
             {
                 var radius = new TerrainRadiusSelection(TerrainBrushKind.Pathen, 2f);

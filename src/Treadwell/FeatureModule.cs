@@ -6,6 +6,7 @@ using System.Text;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
+using TMPro;
 using Treadwell.Core;
 using UnityEngine;
 
@@ -114,6 +115,8 @@ namespace Treadwell
         private readonly ConfigEntry<float> _pavedStamina;
         private readonly RoadSurfaceTracker _surfaceTracker = new RoadSurfaceTracker(NaturalGapHoldSeconds);
         private readonly PavedRoadStationOverride<Piece, CraftingStation> _stationOverride;
+        private readonly TerrainRadiusControlHint _radiusControlHint = new TerrainRadiusControlHint();
+        private Harmony _radiusControlHintHarmony;
         private readonly Dictionary<Piece, TerrainBrushBinding> _terrainBrushes = new Dictionary<Piece, TerrainBrushBinding>();
         private readonly Dictionary<TerrainBrushKind, TerrainRadiusSelection> _terrainRadii =
             new Dictionary<TerrainBrushKind, TerrainRadiusSelection>
@@ -308,6 +311,8 @@ namespace Treadwell
                 BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
             CompatibilityGate.RequireProperty(failures, typeof(GameObject), "activeInHierarchy", typeof(bool),
                 BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireProperty(failures, typeof(GameObject), "transform", typeof(Transform),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
             CompatibilityGate.RequireProperty(failures, typeof(Component), "transform", typeof(Transform),
                 BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
             CompatibilityGate.RequireProperty(failures, typeof(Transform), "position", typeof(Vector3),
@@ -429,6 +434,12 @@ namespace Treadwell
             _pavedSettingSubscribed = true;
             RefreshCurrentBuildPieces();
             RefreshPlayerAvailablePieces();
+            try { TryInstallTerrainRadiusControlHint(); }
+            catch (Exception exception)
+            {
+                try { Log.LogWarning("Terrain-radius control hint was skipped; gameplay remains active: " + exception); }
+                catch { }
+            }
         }
 
         protected override void OnDisabled()
@@ -448,6 +459,17 @@ namespace Treadwell
             catch (Exception exception) { failures.Add(exception); }
             try { ResetTerrainRadiusRuntime(); }
             catch (Exception exception) { failures.Add(exception); }
+            if (_radiusControlHintHarmony != null)
+            {
+                try
+                {
+                    _radiusControlHintHarmony.UnpatchSelf();
+                    _radiusControlHintHarmony = null;
+                }
+                catch (Exception exception) { failures.Add(exception); }
+            }
+            try { _radiusControlHint.Detach(); }
+            catch (Exception exception) { failures.Add(exception); }
 
             // Clear every gameplay entrypoint before best-effort UI refresh/logging.
             _lastPieceTable = null;
@@ -465,6 +487,79 @@ namespace Treadwell
 
             if (failures.Count != 0)
                 throw new AggregateException("Road feature cleanup was incomplete.", failures);
+        }
+
+        private void TryInstallTerrainRadiusControlHint()
+        {
+            var failures = new List<string>();
+            ValidateTerrainRadiusControlHintCompatibility(failures);
+            if (failures.Count != 0)
+            {
+                Log.LogWarning("Terrain-radius control hint was skipped; gameplay remains active. " +
+                               string.Join("; ", failures));
+                return;
+            }
+
+            Harmony hintHarmony = null;
+            try
+            {
+                hintHarmony = new Harmony(Plugin.PluginGuid + ".feature.road.hint");
+                hintHarmony.Patch(
+                    AccessTools.DeclaredMethod(typeof(KeyHints), "UpdateHints", Type.EmptyTypes),
+                    postfix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(KeyHintsUpdateHintsPostfix)));
+                _radiusControlHintHarmony = hintHarmony;
+            }
+            catch (Exception installException)
+            {
+                Exception cleanupException = null;
+                try { hintHarmony?.UnpatchSelf(); }
+                catch (Exception exception)
+                {
+                    cleanupException = exception;
+                    _radiusControlHintHarmony = hintHarmony;
+                }
+
+                Log.LogWarning("Terrain-radius control hint could not be installed; gameplay remains active: " +
+                               installException + (cleanupException == null ? string.Empty :
+                                   " Cleanup also failed and will be retried on disable: " + cleanupException));
+            }
+        }
+
+        private static void ValidateTerrainRadiusControlHintCompatibility(ICollection<string> failures)
+        {
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(KeyHintsUpdateHintsPostfix),
+                new[] { typeof(KeyHints) });
+            CompatibilityGate.RequireMethod(failures, typeof(KeyHints), "UpdateHints", typeof(void),
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
+                method => !method.IsStatic);
+            CompatibilityGate.RequireField(failures, typeof(KeyHints), "m_buildHints", typeof(GameObject),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(KeyHints), "m_buildAlternativePlacingKey", typeof(TextMeshProUGUI),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireMethod(failures, typeof(ZInput), "IsGamepadActive", typeof(bool),
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes,
+                method => method.IsStatic);
+            CompatibilityGate.RequireProperty(failures, typeof(Transform), "parent", typeof(Transform),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireMethod(failures, typeof(Transform), "SetAsLastSibling", typeof(void),
+                BindingFlags.Instance | BindingFlags.Public, Type.EmptyTypes, method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(GameObject), "SetActive", typeof(void),
+                BindingFlags.Instance | BindingFlags.Public, new[] { typeof(bool) }, method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(UnityEngine.Object), "Instantiate", typeof(UnityEngine.Object),
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(UnityEngine.Object), typeof(Transform), typeof(bool) }, method => method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(UnityEngine.Object), "Destroy", typeof(void),
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(UnityEngine.Object) }, method => method.IsStatic);
+            CompatibilityGate.RequireProperty(failures, typeof(UnityEngine.Object), "name", typeof(string),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: true);
+            CompatibilityGate.RequireProperty(failures, typeof(TMP_Text), "text", typeof(string),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: true);
+            CompatibilityGate.RequireProperty(failures, typeof(Localization), "instance", typeof(Localization),
+                BindingFlags.Static | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireMethod(failures, typeof(Localization), "RemoveTextFromCache", typeof(void),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(TMP_Text) }, method => !method.IsStatic);
         }
 
         private static void PlayerSetPlaceModePrefix(PieceTable __0)
@@ -599,6 +694,52 @@ namespace Treadwell
             return false;
         }
 
+        private static void KeyHintsUpdateHintsPostfix(KeyHints __instance)
+        {
+            var module = _activeModule;
+            if (module == null) return;
+            try
+            {
+                module._radiusControlHint.Update(__instance, module.ShouldShowTerrainRadiusControlHint());
+            }
+            catch (Exception exception)
+            {
+                try { module._radiusControlHint.FailForOwner(__instance); }
+                catch { }
+                try { module.Log.LogError("Terrain-radius control hint failed and was removed; gameplay controls remain active: " + exception); }
+                catch { }
+            }
+        }
+
+        private bool ShouldShowTerrainRadiusControlHint()
+        {
+            var player = Player.m_localPlayer;
+            if (player == null || !player.InPlaceMode() || player.IsDead()) return false;
+
+            var isGamepadActive = ZInput.IsGamepadActive();
+            if (isGamepadActive) return false;
+
+            var pieceSelectionVisible = Hud.IsPieceSelectionVisible();
+            if (pieceSelectionVisible) return false;
+
+            // The hint only observes a binding snapshot already completed by gameplay.
+            // It never refreshes or revalidates radius state, so hint failure cannot alter controls.
+            var table = player.GetBuildTool();
+            var bindingsValid = ReferenceEquals(table, _radiusPieceTable) &&
+                                _radiusValidationResult && _terrainBrushes.Count == 3;
+            var selectedKind = TerrainBrushKind.None;
+            var selected = bindingsValid ? table.GetSelectedPiece() : null;
+            if (selected != null && _terrainBrushes.TryGetValue(selected, out var binding) &&
+                binding.TerrainOp != null && HasExpectedVanillaRadii(binding.Kind, binding.TerrainOp.m_settings))
+            {
+                selectedKind = binding.Kind;
+            }
+
+            return TerrainRadiusControlHintRouting.ShouldShow(
+                true, true, false, isGamepadActive,
+                pieceSelectionVisible, bindingsValid, selectedKind);
+        }
+
         private bool ShouldSuppressCameraZoom()
         {
             var player = Player.m_localPlayer;
@@ -619,6 +760,12 @@ namespace Treadwell
             if (module == null) return;
             module.RestorePavedRoadStation();
             module.ResetTerrainRadiusRuntime();
+            try { module._radiusControlHint.Detach(); }
+            catch (Exception exception)
+            {
+                try { module.Log.LogWarning("Terrain-radius control hint cleanup failed during scene destruction: " + exception); }
+                catch { }
+            }
             module._lastPieceTable = null;
         }
 

@@ -178,6 +178,25 @@ namespace Treadwell.Core
         }
     }
 
+    public static class TerrainRadiusControlHintRouting
+    {
+        public static bool ShouldShow(
+            bool isLocalPlayerAvailable,
+            bool inPlaceMode,
+            bool isDead,
+            bool isGamepadActive,
+            bool pieceSelectionVisible,
+            bool bindingsValid,
+            TerrainBrushKind selectedBrush)
+        {
+            var isEligibleBrush = selectedBrush == TerrainBrushKind.LevelGround ||
+                                  selectedBrush == TerrainBrushKind.Pathen ||
+                                  selectedBrush == TerrainBrushKind.PavedRoad;
+            return isLocalPlayerAvailable && inPlaceMode && !isDead && !isGamepadActive &&
+                   !pieceSelectionVisible && bindingsValid && isEligibleBrush;
+        }
+    }
+
     public static class CameraWheelRouting
     {
         public static bool ShouldSuppressZoom(

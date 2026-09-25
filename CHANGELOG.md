@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.4
+
+- Added a native-style keyboard control hint to Valheim's persistent bottom placement row: **Alt + Scroll — Change Size**.
+- Scoped the hint to the same exact, revalidated Level Ground, Pathen, and Paved Road bindings used by the proven radius feature; Raise Ground, unrelated tools and actions, ambiguous or changed brush sets, the open piece selector, and controller input stay untouched.
+- Cloned a vanilla placement-row hint so layout, typography, settings visibility, and surrounding controls remain native; the owned clone is removed on disable, scene unload, UI-owner replacement, or hint failure.
+- Added pure visibility-routing tests, isolated optional runtime compatibility and Harmony-patch checks for the UI/input surface, pinned `KeyHints.Update`/`UpdateHints` IL contracts, and narrow-scope/cleanup infrastructure assertions. A hint-only incompatibility leaves the proven gameplay patches active.
+- Preserved the 0.2.3 terrain-radius implementation unchanged. Version 0.2.3 was live-confirmed as working really well; 0.2.4 only adds the discoverability hint and still needs an in-game UI/layout check.
+
 ## 0.2.3
 
 - Reworked terrain-radius application after live testing showed that 0.2.2 still resized Level Ground's marker without changing the real terrain effect.

@@ -39,6 +39,8 @@ namespace Treadwell.Compatibility.Tests
             contract.Method("Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" }, MethodAttributes.Public);
             contract.Method("Player", "UpdatePlacement", "System.Void", new[] { "System.Boolean", "System.Single" }, MethodAttributes.Private);
             contract.Method("GameCamera", "UpdateCamera", "System.Void", new[] { "System.Single" }, MethodAttributes.Private);
+            contract.Method("KeyHints", "Update", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
+            contract.Method("KeyHints", "UpdateHints", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
             contract.Method("Player", "PlacePiece", "System.Void",
                 new[] { "Piece", "UnityEngine.Vector3", "UnityEngine.Quaternion", "System.Boolean", "System.Boolean" }, MethodAttributes.Public);
             contract.Method("Player", "InPlaceMode", "System.Boolean", Array.Empty<string>(), MethodAttributes.Public | MethodAttributes.Virtual);
@@ -90,6 +92,8 @@ namespace Treadwell.Compatibility.Tests
 
             contract.Field("Player", "m_localPlayer", "Player", FieldAttributes.Public | FieldAttributes.Static);
             contract.Field("Player", "m_placementGhost", "UnityEngine.GameObject", FieldAttributes.Private);
+            contract.Field("KeyHints", "m_buildHints", "UnityEngine.GameObject", FieldAttributes.Public);
+            contract.Field("KeyHints", "m_buildAlternativePlacingKey", "TMPro.TextMeshProUGUI", FieldAttributes.Public);
             contract.Field("PieceTable", "m_pieces", "System.Collections.Generic.List`1<UnityEngine.GameObject>", FieldAttributes.Public);
             contract.Field("Piece", "m_name", "System.String", FieldAttributes.Public);
             contract.Field("Piece", "m_craftingStation", "CraftingStation", FieldAttributes.Public);
@@ -136,6 +140,15 @@ namespace Treadwell.Compatibility.Tests
             contract.ExternalMethodCallCount(
                 "GameCamera", "UpdateCamera", "System.Void", new[] { "System.Single" },
                 "ZInput", "GetMouseScrollWheel", "System.Single", Array.Empty<string>(), 2);
+            contract.MethodCalls(
+                "KeyHints", "Update", "System.Void", Array.Empty<string>(),
+                "KeyHints", "UpdateHints", "System.Void", Array.Empty<string>());
+            contract.MethodReadsField(
+                "KeyHints", "UpdateHints", "System.Void", Array.Empty<string>(),
+                "KeyHints", "m_buildHints", "UnityEngine.GameObject");
+            contract.MethodReadsField(
+                "KeyHints", "UpdateHints", "System.Void", Array.Empty<string>(),
+                "KeyHints", "m_buildAlternativePlacingKey", "TMPro.TextMeshProUGUI");
             contract.MethodCallCount(
                 "Player", "PlacePiece", "System.Void",
                 new[] { "Piece", "UnityEngine.Vector3", "UnityEngine.Quaternion", "System.Boolean", "System.Boolean" },
@@ -251,7 +264,9 @@ namespace Treadwell.Compatibility.Tests
                 MethodAttributes.Public | MethodAttributes.Static);
             utilsContract.Method("ZInput", "GetKey", "System.Boolean",
                 new[] { "UnityEngine.KeyCode", "System.Boolean" }, MethodAttributes.Public | MethodAttributes.Static);
-            Console.WriteLine(_passed + "/112 compatibility contract checks passed");
+            utilsContract.Method("ZInput", "IsGamepadActive", "System.Boolean",
+                Array.Empty<string>(), MethodAttributes.Public | MethodAttributes.Static);
+            Console.WriteLine(_passed + "/120 compatibility contract checks passed");
             return 0;
         }
 
@@ -501,12 +516,12 @@ namespace Treadwell.Compatibility.Tests
 
             internal void MethodReadsField(
                 string sourceType, string sourceName, string sourceReturn, string[] sourceParameters,
-                string fieldType, string fieldName)
+                string fieldDeclaringType, string fieldName, string fieldValueType)
             {
                 var source = FindMethodHandle(sourceType, sourceName, sourceReturn, sourceParameters);
-                var field = FindFieldHandle(fieldType, fieldName, "CraftingStation");
+                var field = FindFieldHandle(fieldDeclaringType, fieldName, fieldValueType);
                 RequireInstructionToken(source, new byte[] { 0x7b }, MetadataTokens.GetToken(field),
-                    sourceType + "." + sourceName + " reads " + fieldType + "." + fieldName);
+                    sourceType + "." + sourceName + " reads " + fieldDeclaringType + "." + fieldName);
             }
 
             internal void ExternalMethodCallCount(
