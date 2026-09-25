@@ -152,6 +152,10 @@ namespace Treadwell.Compatibility.Tests
                 "TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" },
                 "TerrainOp", "Settings", "Serialize", "System.Void", new[] { "ZPackage", "UnityEngine.GameObject" },
                 "ZNetView", "InvokeRPC", "System.Void", new[] { "System.String", "System.Object[]" });
+            contract.MethodCalls(
+                "ZNetView", "InvokeRPC", "System.Void", new[] { "System.String", "System.Object[]" },
+                "ZRoutedRpc", "InvokeRoutedRPC", "System.Void",
+                new[] { "System.Int64", "ZDOID", "System.String", "System.Object[]" });
             contract.MethodCallOrder(
                 "ZRoutedRpc", "InvokeRoutedRPC", "System.Void", new[] { "System.Int64", "ZDOID", "System.String", "System.Object[]" },
                 "ZRoutedRpc", "HandleRoutedRPC", "System.Void", new[] { "RoutedRPCData" },
@@ -196,7 +200,7 @@ namespace Treadwell.Compatibility.Tests
                 MethodAttributes.Public | MethodAttributes.Static);
             utilsContract.Method("ZInput", "GetKey", "System.Boolean",
                 new[] { "UnityEngine.KeyCode", "System.Boolean" }, MethodAttributes.Public | MethodAttributes.Static);
-            Console.WriteLine(_passed + "/92 compatibility contract checks passed");
+            Console.WriteLine(_passed + "/93 compatibility contract checks passed");
             return 0;
         }
 
