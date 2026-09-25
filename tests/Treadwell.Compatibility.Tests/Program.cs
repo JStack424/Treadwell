@@ -54,6 +54,15 @@ namespace Treadwell.Compatibility.Tests
             contract.Method("TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" }, MethodAttributes.Public);
             contract.Method("TerrainComp", "RPC_ApplyOperation", "System.Void",
                 new[] { "System.Int64", "ZPackage" }, MethodAttributes.Private);
+            contract.Method("TerrainComp", "DoOperation", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" }, MethodAttributes.Private);
+            contract.Method("TerrainComp", "InternalDoOperation", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" }, MethodAttributes.Private);
+            contract.Method("TerrainComp", "PaintCleared", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" }, MethodAttributes.Private);
+            contract.Method("ZNetView", "IsOwner", "System.Boolean", Array.Empty<string>(), MethodAttributes.Public);
+            contract.Method("ClutterSystem", "ResetGrass", "System.Void",
+                new[] { "UnityEngine.Vector3", "System.Single" }, MethodAttributes.Public);
             contract.Method("ZNetView", "InvokeRPC", "System.Void",
                 new[] { "System.String", "System.Object[]" }, MethodAttributes.Public);
             contract.Method("ZRoutedRpc", "InvokeRoutedRPC", "System.Void",
@@ -164,6 +173,48 @@ namespace Treadwell.Compatibility.Tests
                 "TerrainComp", "RPC_ApplyOperation", "System.Void", new[] { "System.Int64", "ZPackage" },
                 "TerrainOp", "Settings", "Deserialize", "Settings", new[] { "ZPackage" });
             contract.MethodCalls(
+                "TerrainComp", "RPC_ApplyOperation", "System.Void", new[] { "System.Int64", "ZPackage" },
+                "ZNetView", "IsOwner", "System.Boolean", Array.Empty<string>());
+            contract.MethodCalls(
+                "TerrainComp", "RPC_ApplyOperation", "System.Void", new[] { "System.Int64", "ZPackage" },
+                "TerrainComp", "DoOperation", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" });
+            contract.MethodCallOrder(
+                "TerrainComp", "RPC_ApplyOperation", "System.Void", new[] { "System.Int64", "ZPackage" },
+                "ZNetView", "IsOwner", "System.Boolean", Array.Empty<string>(),
+                "TerrainComp", "DoOperation", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" });
+            contract.NestedCallBeforeMethod(
+                "TerrainComp", "RPC_ApplyOperation", "System.Void", new[] { "System.Int64", "ZPackage" },
+                "TerrainOp", "Settings", "Deserialize", "Settings", new[] { "ZPackage" },
+                "TerrainComp", "DoOperation", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" });
+            contract.RpcArgumentsFlowToDoOperation();
+            contract.MethodCalls(
+                "TerrainComp", "DoOperation", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" },
+                "TerrainComp", "InternalDoOperation", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" });
+            contract.MethodCalls(
+                "TerrainComp", "DoOperation", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" },
+                "ClutterSystem", "ResetGrass", "System.Void",
+                new[] { "UnityEngine.Vector3", "System.Single" });
+            contract.MethodCallOrder(
+                "TerrainComp", "DoOperation", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" },
+                "TerrainComp", "InternalDoOperation", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" },
+                "ClutterSystem", "ResetGrass", "System.Void",
+                new[] { "UnityEngine.Vector3", "System.Single" });
+            contract.MethodCalls(
+                "TerrainComp", "InternalDoOperation", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" },
+                "TerrainComp", "PaintCleared", "System.Void",
+                new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" });
+            contract.InternalDoOperationConsumesTerrainRadii();
+            contract.SerializeCarriesIdentityWithoutRadii();
+            contract.MethodCalls(
                 "Player", "SetPlaceMode", "System.Void", new[] { "PieceTable" },
                 "Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>());
             contract.MethodCalls(
@@ -200,7 +251,7 @@ namespace Treadwell.Compatibility.Tests
                 MethodAttributes.Public | MethodAttributes.Static);
             utilsContract.Method("ZInput", "GetKey", "System.Boolean",
                 new[] { "UnityEngine.KeyCode", "System.Boolean" }, MethodAttributes.Public | MethodAttributes.Static);
-            Console.WriteLine(_passed + "/93 compatibility contract checks passed");
+            Console.WriteLine(_passed + "/112 compatibility contract checks passed");
             return 0;
         }
 
@@ -558,6 +609,117 @@ namespace Treadwell.Compatibility.Tests
                     " before " + secondType + "." + secondName);
             }
 
+            internal void RpcArgumentsFlowToDoOperation()
+            {
+                var source = FindMethodHandle("TerrainComp", "RPC_ApplyOperation", "System.Void",
+                    new[] { "System.Int64", "ZPackage" });
+                var deserialize = FindNestedMethodHandle("TerrainOp", "Settings", "Deserialize", "Settings",
+                    new[] { "ZPackage" });
+                var doOperation = FindMethodHandle("TerrainComp", "DoOperation", "System.Void",
+                    new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" });
+                var readVector3 = FindMethodHandle("ZPackage", "ReadVector3", "UnityEngine.Vector3", Array.Empty<string>());
+
+                var il = MethodIl(source);
+                var readVector3Calls = FindCallOffsets(il, MetadataTokens.GetToken(readVector3));
+                var deserializeCalls = FindCallOffsets(il, MetadataTokens.GetToken(deserialize));
+                var doOperationCalls = FindCallOffsets(il, MetadataTokens.GetToken(doOperation));
+                if (readVector3Calls.Count != 2 || deserializeCalls.Count != 1 || doOperationCalls.Count != 1 ||
+                    readVector3Calls[0] >= readVector3Calls[1] || readVector3Calls[1] >= deserializeCalls[0] ||
+                    deserializeCalls[0] >= doOperationCalls[0] ||
+                    !TryReadStoredLocal(il, readVector3Calls[0] + 5, out var positionLocal) ||
+                    !TryReadStoredLocal(il, readVector3Calls[1] + 5, out var rotationLocal) ||
+                    !TryReadStoredLocal(il, deserializeCalls[0] + 5, out var settingsLocal) ||
+                    !TryReadLoadedLocalEndingAt(il, doOperationCalls[0], out var loadedSettings, out var settingsLoadStart) ||
+                    !TryReadLoadedLocalEndingAt(il, settingsLoadStart, out var loadedRotation, out var rotationLoadStart) ||
+                    !TryReadLoadedLocalEndingAt(il, rotationLoadStart, out var loadedPosition, out _) ||
+                    loadedPosition != positionLocal || loadedRotation != rotationLocal || loadedSettings != settingsLocal)
+                {
+                    throw new InvalidOperationException(
+                        "TerrainComp.RPC_ApplyOperation must pass its exact deserialized position, rotation, and Settings locals to DoOperation");
+                }
+                _passed++;
+                Console.WriteLine("PASS IL TerrainComp.RPC_ApplyOperation passes exact deserialized arguments directly to DoOperation");
+            }
+
+            internal void InternalDoOperationConsumesTerrainRadii()
+            {
+                var source = FindMethodHandle("TerrainComp", "InternalDoOperation", "System.Void",
+                    new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" });
+                foreach (var fieldName in new[] { "m_levelRadius", "m_raiseRadius", "m_smoothRadius" })
+                {
+                    var field = FindNestedFieldHandle("TerrainOp", "Settings", fieldName, "System.Single");
+                    RequireInstructionToken(source, new byte[] { 0x7b }, MetadataTokens.GetToken(field),
+                        "TerrainComp.InternalDoOperation reads TerrainOp.Settings." + fieldName);
+                }
+                var paintSource = FindMethodHandle("TerrainComp", "PaintCleared", "System.Void",
+                    new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" });
+                var paintRadius = FindNestedFieldHandle("TerrainOp", "Settings", "m_paintRadius", "System.Single");
+                RequireInstructionToken(paintSource, new byte[] { 0x7b }, MetadataTokens.GetToken(paintRadius),
+                    "TerrainComp.PaintCleared reads TerrainOp.Settings.m_paintRadius");
+            }
+
+            internal void SerializeCarriesIdentityWithoutRadii()
+            {
+                var source = FindNestedMethodHandle("TerrainOp", "Settings", "Serialize", "System.Void",
+                    new[] { "ZPackage", "UnityEngine.GameObject" });
+                var il = MethodIl(source);
+                foreach (var fieldName in new[] { "m_levelRadius", "m_raiseRadius", "m_smoothRadius", "m_paintRadius" })
+                {
+                    var field = FindNestedFieldHandle("TerrainOp", "Settings", fieldName, "System.Single");
+                    if (ContainsInstructionToken(il, new byte[] { 0x7b, 0x7e }, MetadataTokens.GetToken(field)))
+                        throw new InvalidOperationException("TerrainOp.Settings.Serialize unexpectedly reads " + fieldName);
+                }
+                _passed++;
+                Console.WriteLine("PASS IL TerrainOp.Settings.Serialize carries operation identity without custom radii");
+            }
+
+            private static bool TryReadStoredLocal(byte[] il, int offset, out int localIndex)
+            {
+                localIndex = -1;
+                if (offset >= il.Length) return false;
+                if (il[offset] >= 0x0a && il[offset] <= 0x0d)
+                {
+                    localIndex = il[offset] - 0x0a;
+                    return true;
+                }
+                if (il[offset] == 0x13 && offset + 1 < il.Length)
+                {
+                    localIndex = il[offset + 1];
+                    return true;
+                }
+                if (offset + 3 < il.Length && il[offset] == 0xfe && il[offset + 1] == 0x0e)
+                {
+                    localIndex = BitConverter.ToUInt16(il, offset + 2);
+                    return true;
+                }
+                return false;
+            }
+
+            private static bool TryReadLoadedLocalEndingAt(byte[] il, int endOffset, out int localIndex, out int startOffset)
+            {
+                localIndex = -1;
+                startOffset = -1;
+                if (endOffset >= 1 && il[endOffset - 1] >= 0x06 && il[endOffset - 1] <= 0x09)
+                {
+                    localIndex = il[endOffset - 1] - 0x06;
+                    startOffset = endOffset - 1;
+                    return true;
+                }
+                if (endOffset >= 2 && il[endOffset - 2] == 0x11)
+                {
+                    localIndex = il[endOffset - 1];
+                    startOffset = endOffset - 2;
+                    return true;
+                }
+                if (endOffset >= 4 && il[endOffset - 4] == 0xfe && il[endOffset - 3] == 0x0c)
+                {
+                    localIndex = BitConverter.ToUInt16(il, endOffset - 2);
+                    startOffset = endOffset - 4;
+                    return true;
+                }
+                return false;
+            }
+
             private void RequireCallOrder(MethodDefinitionHandle source, EntityHandle first, EntityHandle second, string label)
             {
                 var il = MethodIl(source);
@@ -574,19 +736,24 @@ namespace Treadwell.Compatibility.Tests
                 var method = _reader.GetMethodDefinition(source);
                 var bytes = _pe.GetMethodBody(method.RelativeVirtualAddress).GetILBytes()
                     ?? throw new InvalidOperationException(label + " has no IL body");
-                var found = false;
-                for (var index = 0; index + 4 < bytes.Length && !found; index++)
+                if (!ContainsInstructionToken(bytes, opcodes, token))
+                    throw new InvalidOperationException(label + " IL contract mismatch");
+                _passed++;
+                Console.WriteLine("PASS IL " + label);
+            }
+
+            private static bool ContainsInstructionToken(byte[] bytes, byte[] opcodes, int token)
+            {
+                for (var index = 0; index + 4 < bytes.Length; index++)
                 {
                     if (!opcodes.Contains(bytes[index])) continue;
                     var observed = bytes[index + 1] |
                                    (bytes[index + 2] << 8) |
                                    (bytes[index + 3] << 16) |
                                    (bytes[index + 4] << 24);
-                    found = observed == token;
+                    if (observed == token) return true;
                 }
-                if (!found) throw new InvalidOperationException(label + " IL contract mismatch");
-                _passed++;
-                Console.WriteLine("PASS IL " + label);
+                return false;
             }
 
             private MethodDefinitionHandle FindMethodHandle(string typeName, string methodName, string returnType, string[] parameters)
@@ -652,6 +819,20 @@ namespace Treadwell.Compatibility.Tests
             {
                 var type = FindTopLevel(typeName);
                 return type.GetFields().Single(handle =>
+                {
+                    var field = _reader.GetFieldDefinition(handle);
+                    return _reader.GetString(field.Name) == fieldName && field.DecodeSignature(_provider, null) == fieldType;
+                });
+            }
+
+            private FieldDefinitionHandle FindNestedFieldHandle(
+                string outerName, string nestedName, string fieldName, string fieldType)
+            {
+                var outer = _reader.GetTypeDefinition(FindTopLevelHandle(outerName));
+                var nested = outer.GetNestedTypes()
+                    .Select(handle => _reader.GetTypeDefinition(handle))
+                    .Single(type => _reader.GetString(type.Name) == nestedName);
+                return nested.GetFields().Single(handle =>
                 {
                     var field = _reader.GetFieldDefinition(handle);
                     return _reader.GetString(field.Name) == fieldName && field.DecodeSignature(_provider, null) == fieldType;

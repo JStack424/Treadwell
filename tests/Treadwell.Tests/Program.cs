@@ -568,6 +568,85 @@ namespace Treadwell.Tests
                 Near(2f, registeredEffect.MaximumActiveRadius());
                 oldMutationShape.Restore();
             });
+            Run("0.2.2 failure is corrected at the authoritative Level Ground settings boundary", () =>
+            {
+                var selectedPrefab = FakeTerrainRadiusTarget.LevelGround();
+                var authoritativeSettings = FakeTerrainRadiusTarget.LevelGround();
+                var prefabMutation = new TerrainRadiusMutationSession(new[] { selectedPrefab });
+                prefabMutation.Apply(6f);
+
+                // The old implementation could adjust the clone source while the
+                // independently resolved settings consumed by DoOperation stayed vanilla.
+                Near(6f, selectedPrefab.MaximumActiveRadius());
+                Near(3f, authoritativeSettings.MaximumActiveRadius());
+                Equal(true, TerrainRadiusOperationGuard.MatchesAuthoritativeSettings(
+                    TerrainBrushKind.LevelGround, authoritativeSettings, 6f));
+
+                var operationMutation = new TerrainRadiusMutationSession(new[] { authoritativeSettings });
+                operationMutation.Apply(6f);
+                Near(6f, authoritativeSettings.SmoothRadius);
+                Near(6f, authoritativeSettings.PaintRadius);
+                Equal(false, operationMutation.Restore());
+                Near(3f, authoritativeSettings.MaximumActiveRadius());
+                Equal(false, prefabMutation.Restore());
+            });
+            Run("authoritative Level Ground supports a smaller one-metre operation", () =>
+            {
+                var settings = FakeTerrainRadiusTarget.LevelGround();
+                Equal(true, TerrainRadiusOperationGuard.MatchesAuthoritativeSettings(
+                    TerrainBrushKind.LevelGround, settings, 1f));
+                var mutation = new TerrainRadiusMutationSession(new[] { settings });
+                mutation.Apply(1f);
+                Near(1f, settings.SmoothRadius);
+                Near(1f, settings.PaintRadius);
+                mutation.Restore();
+            });
+            Run("authoritative guard accepts already-adjusted Level Ground settings", () =>
+            {
+                var settings = FakeTerrainRadiusTarget.LevelGround();
+                var mutation = new TerrainRadiusMutationSession(new[] { settings });
+                mutation.Apply(5.5f);
+                Equal(true, TerrainRadiusOperationGuard.MatchesAuthoritativeSettings(
+                    TerrainBrushKind.LevelGround, settings, 5.5f));
+                mutation.Restore();
+            });
+            Run("authoritative guard applies the shared mechanism to Pathen", () =>
+                Equal(true, TerrainRadiusOperationGuard.MatchesAuthoritativeSettings(
+                    TerrainBrushKind.Pathen, FakeTerrainRadiusTarget.Pathen(), 5f)));
+            Run("authoritative guard preserves the Paved Road channel ratio", () =>
+            {
+                var settings = FakeTerrainRadiusTarget.PavedRoad();
+                Equal(true, TerrainRadiusOperationGuard.MatchesAuthoritativeSettings(
+                    TerrainBrushKind.PavedRoad, settings, 6f));
+                var mutation = new TerrainRadiusMutationSession(new[] { settings });
+                mutation.Apply(6f);
+                Near(6f, settings.SmoothRadius);
+                Near(4.4f, settings.PaintRadius);
+                Equal(true, TerrainRadiusOperationGuard.MatchesAuthoritativeSettings(
+                    TerrainBrushKind.PavedRoad, settings, 6f));
+                mutation.Restore();
+            });
+            Run("authoritative guard excludes Raise Ground", () =>
+            {
+                var settings = FakeTerrainRadiusTarget.LevelGround();
+                settings.RaiseActive = true;
+                Equal(false, TerrainRadiusOperationGuard.MatchesAuthoritativeSettings(
+                    TerrainBrushKind.LevelGround, settings, 6f));
+            });
+            Run("authoritative guard excludes altered Level Ground radii", () =>
+            {
+                var settings = FakeTerrainRadiusTarget.LevelGround();
+                settings.PaintRadius = 2.75f;
+                Equal(false, TerrainRadiusOperationGuard.MatchesAuthoritativeSettings(
+                    TerrainBrushKind.LevelGround, settings, 6f));
+            });
+            Run("authoritative guard excludes wrong paint semantics", () =>
+            {
+                var settings = FakeTerrainRadiusTarget.LevelGround();
+                settings.PaintType = 1;
+                Equal(false, TerrainRadiusOperationGuard.MatchesAuthoritativeSettings(
+                    TerrainBrushKind.LevelGround, settings, 6f));
+            });
             Run("shared settings identity is mutated only once", () =>
             {
                 var settings = FakeTerrainRadiusTarget.Pathen();
@@ -817,6 +896,7 @@ namespace Treadwell.Tests
             internal static FakeTerrainRadiusTarget Pathen() => new FakeTerrainRadiusTarget
             {
                 PaintActive = true,
+                PaintType = VanillaTerrainBrushClassifier.DirtPaintType,
                 PaintRadius = 2f
             };
 
@@ -824,6 +904,7 @@ namespace Treadwell.Tests
             {
                 SmoothActive = true,
                 PaintActive = true,
+                PaintType = VanillaTerrainBrushClassifier.PavedPaintType,
                 SmoothRadius = 3f,
                 PaintRadius = 2.2f
             };
@@ -832,6 +913,7 @@ namespace Treadwell.Tests
             {
                 SmoothActive = true,
                 PaintActive = true,
+                PaintType = VanillaTerrainBrushClassifier.DirtPaintType,
                 SmoothRadius = 3f,
                 PaintRadius = 3f
             };
@@ -841,6 +923,7 @@ namespace Treadwell.Tests
             public bool RaiseActive { get; set; }
             public bool SmoothActive { get; set; }
             public bool PaintActive { get; set; }
+            public int PaintType { get; set; }
             public float LevelRadius { get; set; }
             public float RaiseRadius { get; set; }
             public float SmoothRadius { get; set; }

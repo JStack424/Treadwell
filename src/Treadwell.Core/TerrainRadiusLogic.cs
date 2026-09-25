@@ -218,10 +218,67 @@ namespace Treadwell.Core
         bool RaiseActive { get; }
         bool SmoothActive { get; }
         bool PaintActive { get; }
+        int PaintType { get; }
         float LevelRadius { get; set; }
         float RaiseRadius { get; set; }
         float SmoothRadius { get; set; }
         float PaintRadius { get; set; }
+    }
+
+
+    public static class TerrainRadiusOperationGuard
+    {
+        private const float Epsilon = 0.0001f;
+
+        public static bool MatchesAuthoritativeSettings(
+            TerrainBrushKind kind,
+            ITerrainRadiusMutationTarget target,
+            float requestedRadius)
+        {
+            if (target == null || target.Identity == null ||
+                target.LevelActive || target.RaiseActive || !target.PaintActive ||
+                !IsFinitePositive(requestedRadius))
+            {
+                return false;
+            }
+
+            switch (kind)
+            {
+                case TerrainBrushKind.LevelGround:
+                    return target.SmoothActive && target.PaintType == VanillaTerrainBrushClassifier.DirtPaintType &&
+                           MatchesPair(target.SmoothRadius, target.PaintRadius, 3f, 3f, requestedRadius, requestedRadius);
+                case TerrainBrushKind.Pathen:
+                    return !target.SmoothActive && target.PaintType == VanillaTerrainBrushClassifier.DirtPaintType &&
+                           MatchesEither(target.PaintRadius, 2f, requestedRadius);
+                case TerrainBrushKind.PavedRoad:
+                    return target.SmoothActive && target.PaintType == VanillaTerrainBrushClassifier.PavedPaintType &&
+                           MatchesPair(target.SmoothRadius, target.PaintRadius, 3f, 2.2f,
+                               requestedRadius, requestedRadius * (2.2f / 3f));
+                default:
+                    return false;
+            }
+        }
+
+        private static bool MatchesPair(
+            float first,
+            float second,
+            float vanillaFirst,
+            float vanillaSecond,
+            float adjustedFirst,
+            float adjustedSecond)
+        {
+            return (Approximately(first, vanillaFirst) && Approximately(second, vanillaSecond)) ||
+                   (Approximately(first, adjustedFirst) && Approximately(second, adjustedSecond));
+        }
+
+        private static bool MatchesEither(float value, float vanillaValue, float adjustedValue)
+            => Approximately(value, vanillaValue) || Approximately(value, adjustedValue);
+
+        private static bool Approximately(float left, float right)
+            => !float.IsNaN(left) && !float.IsNaN(right) && Math.Abs(left - right) <= Epsilon;
+
+        private static bool IsFinitePositive(float value)
+            => !float.IsNaN(value) && !float.IsInfinity(value) && value > 0f;
     }
 
     public sealed class TerrainRadiusMutationSession

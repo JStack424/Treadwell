@@ -102,6 +102,7 @@ namespace Treadwell
     {
         internal const double NaturalGapHoldSeconds = 0.18d;
         private static RoadFeatureModule _activeModule;
+        [ThreadStatic] private static Stack<RadiusPlacement> _activeRadiusPlacements;
 
         private static MethodInfo GetLastGroundColliderMethod;
         private static MethodInfo UpdateAvailablePiecesListMethod;
@@ -186,6 +187,9 @@ namespace Treadwell
             CompatibilityGate.RequireMethod(failures, typeof(Player), "PlacePiece", typeof(void),
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
                 new[] { typeof(Piece), typeof(Vector3), typeof(Quaternion), typeof(bool), typeof(bool) }, method => !method.IsStatic);
+            CompatibilityGate.RequireMethod(failures, typeof(TerrainComp), "DoOperation", typeof(void),
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                new[] { typeof(Vector3), typeof(Vector3), typeof(TerrainOp.Settings) }, method => !method.IsStatic);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "InPlaceMode", typeof(bool),
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes, method => !method.IsStatic);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "IsDead", typeof(bool),
@@ -235,11 +239,6 @@ namespace Treadwell
             CompatibilityGate.RequireMethod(failures, typeof(TerrainOp.Settings), "GetRadius", typeof(float),
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => !method.IsStatic);
-            CompatibilityGate.RequireProperty(failures, typeof(ObjectDB), "instance", typeof(ObjectDB),
-                BindingFlags.Static | BindingFlags.Public, requireGetter: true, requireSetter: false);
-            CompatibilityGate.RequireMethod(failures, typeof(ObjectDB), "TryGetTerrainOp", typeof(bool),
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
-                new[] { typeof(string), typeof(TerrainOp).MakeByRefType() }, method => !method.IsStatic);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "GetRunSpeedFactor", typeof(float),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => method.IsFamily && method.IsVirtual);
@@ -276,8 +275,12 @@ namespace Treadwell
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerUpdatePlacementPrefix),
                 new[] { typeof(Player), typeof(bool), typeof(GameObject) });
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerPlacePiecePrefix),
-                new[] { typeof(Player), typeof(Piece), typeof(RadiusMutation).MakeByRefType() });
+                new[] { typeof(Player), typeof(Piece), typeof(Vector3), typeof(RadiusPlacement).MakeByRefType() });
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerPlacePieceFinalizer),
+                typeof(Exception), new[] { typeof(Exception), typeof(RadiusPlacement) });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(TerrainCompDoOperationPrefix),
+                new[] { typeof(Vector3), typeof(TerrainOp.Settings), typeof(RadiusMutation).MakeByRefType() });
+            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(TerrainCompDoOperationFinalizer),
                 typeof(Exception), new[] { typeof(Exception), typeof(RadiusMutation) });
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(GameCameraUpdateCameraPrefix),
                 new[] { typeof(bool).MakeByRefType() });
@@ -400,6 +403,11 @@ namespace Treadwell
                 prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerPlacePiecePrefix)),
                 finalizer: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerPlacePieceFinalizer)));
             Harmony.Patch(
+                AccessTools.DeclaredMethod(typeof(TerrainComp), "DoOperation",
+                    new[] { typeof(Vector3), typeof(Vector3), typeof(TerrainOp.Settings) }),
+                prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(TerrainCompDoOperationPrefix)),
+                finalizer: new HarmonyMethod(typeof(RoadFeatureModule), nameof(TerrainCompDoOperationFinalizer)));
+            Harmony.Patch(
                 AccessTools.DeclaredMethod(typeof(GameCamera), "UpdateCamera", new[] { typeof(float) }),
                 prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(GameCameraUpdateCameraPrefix)),
                 finalizer: new HarmonyMethod(typeof(RoadFeatureModule), nameof(GameCameraUpdateCameraFinalizer)));
@@ -495,11 +503,11 @@ namespace Treadwell
             }
         }
 
-        private static void PlayerPlacePiecePrefix(Player __instance, Piece __0, ref RadiusMutation __state)
+        private static void PlayerPlacePiecePrefix(Player __instance, Piece __0, Vector3 __1, ref RadiusPlacement __state)
         {
             var module = _activeModule;
             if (module == null) return;
-            try { __state = module.BeginRadiusMutation(__instance, __0); }
+            try { __state = module.BeginRadiusMutation(__instance, __0, __1); }
             catch (Exception exception)
             {
                 __state?.Restore(module.Log);
@@ -508,13 +516,54 @@ namespace Treadwell
             }
         }
 
-        private static Exception PlayerPlacePieceFinalizer(Exception __exception, RadiusMutation __state)
+        private static Exception PlayerPlacePieceFinalizer(Exception __exception, RadiusPlacement __state)
         {
             var module = _activeModule;
             try { __state?.Restore(module?.Log); }
             catch (Exception exception)
             {
                 try { module?.Log.LogError("Terrain-radius placement cleanup failed: " + exception); }
+                catch { }
+            }
+            return __exception;
+        }
+
+        private static void TerrainCompDoOperationPrefix(
+            Vector3 __0,
+            TerrainOp.Settings __2,
+            ref RadiusMutation __state)
+        {
+            var module = _activeModule;
+            var placement = CurrentRadiusPlacement;
+            if (module == null || placement == null || __2 == null || !placement.MatchesPosition(__0)) return;
+
+            try
+            {
+                var target = new TerrainOpSettingsTarget(__2);
+                if (!TerrainRadiusOperationGuard.MatchesAuthoritativeSettings(
+                        placement.Kind, target, placement.TargetRadius))
+                {
+                    return;
+                }
+
+                __state = new RadiusMutation(target);
+                __state.Apply(placement.TargetRadius);
+            }
+            catch (Exception exception)
+            {
+                __state?.Restore(module.Log);
+                __state = null;
+                module.Log.LogError("Terrain-radius authoritative operation override failed; this operation retained its resolved radius: " + exception);
+            }
+        }
+
+        private static Exception TerrainCompDoOperationFinalizer(Exception __exception, RadiusMutation __state)
+        {
+            var module = _activeModule;
+            try { __state?.Restore(module?.Log); }
+            catch (Exception exception)
+            {
+                try { module?.Log.LogError("Terrain-radius authoritative operation cleanup failed: " + exception); }
                 catch { }
             }
             return __exception;
@@ -768,7 +817,7 @@ namespace Treadwell
             return true;
         }
 
-        private RadiusMutation BeginRadiusMutation(Player player, Piece piece)
+        private RadiusPlacement BeginRadiusMutation(Player player, Piece piece, Vector3 position)
         {
             if (player == null || player != Player.m_localPlayer || !player.InPlaceMode() || player.IsDead() || piece == null)
                 return null;
@@ -795,23 +844,12 @@ namespace Treadwell
             var radius = _terrainRadii[binding.Kind];
             if (Approximately(radius.Radius, binding.VanillaRadius)) return null;
 
-            // TerrainOp.Awake uses the cloned table prefab's values to find affected
-            // heightmaps, but TerrainComp's RPC resolves the operation settings again
-            // through ObjectDB by prefab name. Keep both authoritative sources changed
-            // for the synchronous placement call, then restore both in the finalizer.
-            var objectDb = ObjectDB.instance;
-            TerrainOp registeredTerrainOp;
-            if (objectDb == null || piece.gameObject == null ||
-                !objectDb.TryGetTerrainOp(piece.gameObject.name, out registeredTerrainOp) ||
-                registeredTerrainOp == null ||
-                !HasExpectedVanillaRadii(binding.Kind, registeredTerrainOp.m_settings))
-            {
-                return null;
-            }
-
-            var mutation = new RadiusMutation(binding.TerrainOp, registeredTerrainOp);
-            mutation.Apply(radius.Radius);
-            return mutation;
+            // The selected prefab controls TerrainOp.Awake's initial heightmap search.
+            // The owner later deserializes only a prefab hash, so its exact Settings
+            // instance is intercepted separately at TerrainComp.DoOperation.
+            var placement = new RadiusPlacement(binding.Kind, radius.Radius, position, binding.TerrainOp);
+            placement.ApplyAndActivate();
+            return placement;
         }
 
         private void ResetTerrainRadiusRuntime()
@@ -822,6 +860,7 @@ namespace Treadwell
             _radiusPieceTable = null;
             _radiusValidationFrame = -1;
             _radiusValidationResult = false;
+            RestoreActiveRadiusPlacements();
             _suppressCameraMouseWheelDepth = 0;
         }
 
@@ -1137,6 +1176,82 @@ namespace Treadwell
             internal bool IndicatorSynchronized { get; set; }
         }
 
+        private static RadiusPlacement CurrentRadiusPlacement
+            => _activeRadiusPlacements != null && _activeRadiusPlacements.Count != 0
+                ? _activeRadiusPlacements.Peek()
+                : null;
+
+        private static void RestoreActiveRadiusPlacements()
+        {
+            while (_activeRadiusPlacements != null && _activeRadiusPlacements.Count != 0)
+                _activeRadiusPlacements.Peek().Restore(_activeModule?.Log);
+            _activeRadiusPlacements = null;
+        }
+
+        private sealed class RadiusPlacement
+        {
+            private const float PositionEpsilon = 0.01f;
+            private readonly Vector3 _position;
+            private readonly RadiusMutation _prefabMutation;
+            private bool _active;
+            private bool _restored;
+
+            internal RadiusPlacement(TerrainBrushKind kind, float targetRadius, Vector3 position, TerrainOp prefabTerrainOp)
+            {
+                Kind = kind;
+                TargetRadius = targetRadius;
+                _position = position;
+                _prefabMutation = new RadiusMutation(prefabTerrainOp);
+            }
+
+            internal TerrainBrushKind Kind { get; }
+            internal float TargetRadius { get; }
+
+            internal void ApplyAndActivate()
+            {
+                _prefabMutation.Apply(TargetRadius);
+                try
+                {
+                    if (_activeRadiusPlacements == null) _activeRadiusPlacements = new Stack<RadiusPlacement>();
+                    _activeRadiusPlacements.Push(this);
+                    _active = true;
+                }
+                catch
+                {
+                    _prefabMutation.Restore(_activeModule?.Log);
+                    throw;
+                }
+            }
+
+            internal bool MatchesPosition(Vector3 position)
+            {
+                return Math.Abs(position.x - _position.x) <= PositionEpsilon &&
+                       Math.Abs(position.y - _position.y) <= PositionEpsilon &&
+                       Math.Abs(position.z - _position.z) <= PositionEpsilon;
+            }
+
+            internal void Restore(ManualLogSource log)
+            {
+                if (_restored) return;
+                _restored = true;
+                if (_active)
+                {
+                    if (_activeRadiusPlacements != null && _activeRadiusPlacements.Count != 0 &&
+                        ReferenceEquals(_activeRadiusPlacements.Peek(), this))
+                    {
+                        _activeRadiusPlacements.Pop();
+                    }
+                    else
+                    {
+                        _activeRadiusPlacements?.Clear();
+                        log?.LogWarning("Terrain-radius placement scopes were not nested as expected; active scopes were cleared.");
+                    }
+                    _active = false;
+                }
+                _prefabMutation.Restore(log);
+            }
+        }
+
         private sealed class RadiusMutation
         {
             private readonly TerrainRadiusMutationSession _session;
@@ -1154,6 +1269,14 @@ namespace Treadwell
                     targets.Add(new TerrainOpSettingsTarget(terrainOp.m_settings));
                 }
                 _session = new TerrainRadiusMutationSession(targets);
+            }
+
+            internal RadiusMutation(ITerrainRadiusMutationTarget target)
+            {
+                _session = new TerrainRadiusMutationSession(new[]
+                {
+                    target ?? throw new ArgumentNullException(nameof(target))
+                });
             }
 
             internal void Apply(float targetRadius) => _session.Apply(targetRadius);
@@ -1179,6 +1302,7 @@ namespace Treadwell
             public bool RaiseActive => _settings.m_raise;
             public bool SmoothActive => _settings.m_smooth;
             public bool PaintActive => _settings.m_paintCleared;
+            public int PaintType => (int)_settings.m_paintType;
             public float LevelRadius { get => _settings.m_levelRadius; set => _settings.m_levelRadius = value; }
             public float RaiseRadius { get => _settings.m_raiseRadius; set => _settings.m_raiseRadius = value; }
             public float SmoothRadius { get => _settings.m_smoothRadius; set => _settings.m_smoothRadius = value; }

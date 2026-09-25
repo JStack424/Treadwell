@@ -86,6 +86,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         for patch in (
             "PlayerSetPlaceModePrefix", "PieceTableUpdateAvailablePrefix", "PlayerHaveRequirementsPrefix",
             "PlayerUpdatePlacementPrefix", "PlayerPlacePiecePrefix", "PlayerPlacePieceFinalizer",
+            "TerrainCompDoOperationPrefix", "TerrainCompDoOperationFinalizer",
             "GameCameraUpdateCameraPrefix", "GameCameraUpdateCameraFinalizer", "ZInputGetMouseScrollWheelPrefix", "ZNetSceneOnDestroyPrefix", "GetRunSpeedFactorPostfix",
             "ModifyRunStaminaDrainPostfix",
         ):
@@ -97,6 +98,16 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         )
         self.assertIn(
             "RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerPlacePieceFinalizer),\n"
+            "                typeof(Exception), new[] { typeof(Exception), typeof(RadiusPlacement) });",
+            module,
+        )
+        self.assertIn(
+            "RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(TerrainCompDoOperationPrefix),\n"
+            "                new[] { typeof(Vector3), typeof(TerrainOp.Settings), typeof(RadiusMutation).MakeByRefType() });",
+            module,
+        )
+        self.assertIn(
+            "RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(TerrainCompDoOperationFinalizer),\n"
             "                typeof(Exception), new[] { typeof(Exception), typeof(RadiusMutation) });",
             module,
         )
@@ -106,7 +117,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             'typeof(UnityEngine.Object), "op_Inequality"', 'typeof(Harmony), "Patch"',
             'typeof(Harmony), "UnpatchSelf"', 'typeof(AccessTools), "DeclaredMethod"',
             'typeof(Transform), "localScale"', 'typeof(Transform), "Find"',
-            'typeof(Time), "frameCount"', 'typeof(GameCamera), "UpdateCamera"', 'typeof(ZInput), "GetKey"',
+            'typeof(Time), "frameCount"', 'typeof(GameCamera), "UpdateCamera"', 'typeof(TerrainComp), "DoOperation"', 'typeof(ZInput), "GetKey"',
             'typeof(ZInput), "GetMouseScrollWheel"', 'typeof(Hud), "IsPieceSelectionVisible"',
         ):
             self.assertIn(runtime_contract, module)
@@ -223,11 +234,12 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "TerrainIndicatorRouting.CanSynchronize", "GetComponentsInChildren<ParticleSystem>(true)",
             "particle.main.scalingMode == ParticleSystemScalingMode.Local", "_scaledIndicatorTransforms",
             "new ScaledIndicatorTransform(marker)", "target.Apply(scale)", "new TerrainIndicatorScale",
-            "mutation.Apply(radius.Radius)",
-            "ObjectDB.instance", "TryGetTerrainOp(piece.gameObject.name", "registeredTerrainOp",
-            "new RadiusMutation(binding.TerrainOp, registeredTerrainOp)",
+            "placement.ApplyAndActivate()", "TerrainCompDoOperationPrefix", "TerrainCompDoOperationFinalizer",
+            "TerrainRadiusOperationGuard.MatchesAuthoritativeSettings", "placement.MatchesPosition(__0)",
+            "new RadiusMutation(target)", "new RadiusMutation(prefabTerrainOp)",
             "new TerrainRadiusMutationSession(targets)", "_session.Restore()",
-            "TerrainOpSettingsTarget", "ITerrainRadiusMutationTarget",
+            "TerrainOpSettingsTarget", "ITerrainRadiusMutationTarget", "PaintType => (int)_settings.m_paintType",
+            "[ThreadStatic]", "Stack<RadiusPlacement>", "RestoreActiveRadiusPlacements",
             "RevalidateTerrainRadiusBindings(force: false)", "RevalidateTerrainRadiusBindings(force: true)",
             "InspectPieceTable(_radiusPieceTable)", "if (pair.Value.Count != 1) return false;",
             "ReferenceEquals(binding.TerrainOp, entry.TerrainOps[0])",
@@ -260,11 +272,14 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "GhostOnly marker always scales its own transform",
             "nested Local particle scales its own transform",
             "nonlocal descendant inherits marker scale without second scaling",
-            "dual-source mutation applies and restores both settings objects",
-            "Level Ground clone search and registered effect both use the selected radius before restore",
-            "Pathen clone search and registered effect both use the selected radius before restore",
-            "the 0.2.1 selected-only target leaves the resolved effect at vanilla radius",
-            "shared settings identity is mutated only once",
+            "0.2.2 failure is corrected at the authoritative Level Ground settings boundary",
+            "authoritative Level Ground supports a smaller one-metre operation",
+            "authoritative guard accepts already-adjusted Level Ground settings",
+            "authoritative guard applies the shared mechanism to Pathen",
+            "authoritative guard preserves the Paved Road channel ratio",
+            "authoritative guard excludes Raise Ground",
+            "authoritative guard excludes altered Level Ground radii",
+            "authoritative guard excludes wrong paint semantics",
             "restoration preserves a conflicting runtime field",
             "mutation never changes disabled terrain channels",
             "partial application rolls back fields already changed",
@@ -285,7 +300,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertEqual(1, particle["scaling_mode_value"])
         contract = (ROOT / "docs" / "ASSEMBLY-CONTRACT.md").read_text()
         self.assertIn("tests/fixtures/path_v2-prefab.json", contract)
-        self.assertIn("both the selected piece-table prefab and the matching `ObjectDB`", contract)
+        self.assertIn("passes those exact locals, including the resolved `TerrainOp.Settings`, directly into private `TerrainComp.DoOperation(Vector3, Vector3, TerrainOp.Settings)`", contract)
+        self.assertIn("remote terrain owner", contract)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
 
     def test_pinned_provenance_is_checked_offline_and_runtime_contract_is_shape_based(self):
@@ -299,7 +315,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "ExpectedSha256", "ExpectedMvid", "PieceTable", "UpdateAvailable", "ZNetScene", "OnDestroy",
             "SetPlaceMode", "GetBuildTool", "UpdateAvailablePiecesList", "HaveRequirements", "UpdatePlacement", "PlacePiece",
             "InPlaceMode", "IsDead", "GetSelectedPiece", "GetRadius", "TryGetTerrainOp",
-            "RPC_ApplyOperation", "Serialize", "Deserialize",
+            "RPC_ApplyOperation", "DoOperation", "InternalDoOperation", "ResetGrass", "IsOwner", "Serialize", "Deserialize",
             "UpdateWalking", "CheckRun", "GetRunSpeedFactor", "ModifyRunStaminaDrain", "UseStamina",
             "CurrentGameVersion", "GetPaintMask", "m_character",
             "m_localPlayer", "m_placementGhost", "m_pieces", "m_craftingStation", "m_resources", "m_resItem", "m_amount",

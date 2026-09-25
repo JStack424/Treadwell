@@ -1,9 +1,19 @@
 # Changelog
 
+## 0.2.3
+
+- Reworked terrain-radius application after live testing showed that 0.2.2 still resized Level Ground's marker without changing the real terrain effect.
+- Kept the selected prefab adjustment for `TerrainOp.Awake`'s initial heightmap search, then added a tightly scoped patch at private `TerrainComp.DoOperation(Vector3, Vector3, TerrainOp.Settings)`, the final local boundary that receives the terrain owner's resolved settings.
+- Added a thread-local placement scope tied to the exact local `Player.PlacePiece` call and placement position. The final settings mutation runs only when that scope matches and the received settings have the exact vanilla Level Ground, Pathen, or Paved Road semantic shape; Raise Ground, wrong paint types, changed radii, and modded shapes fail closed.
+- Restores both the selected prefab and final operation settings in Harmony finalizers, without overwriting conflicting third-party changes or replacing the original exception.
+- Expanded pinned Valheim 1.0.14 IL coverage for owner-gated RPC deserialization, direct operation-position/rotation/settings flow into `DoOperation`, `InternalDoOperation`/`ResetGrass` order, all consumed radius channels, and proof that `Settings.Serialize` carries operation identity rather than custom radius values.
+- Preserved the live-confirmed Alt-wheel camera suppression, Pathen marker scaling, 1–8 m Level Ground range, 1–10 m Pathen/Paved Road ranges, Paved Road's 2.2:3 paint-to-smooth ratio, Raise Ground exclusion, and every 0.1.2 road feature.
+- This is an unverified local test candidate. Level Ground's larger and smaller actual effect, marker/effect agreement, Pathen's marker and effect, and multiplayer/remote-owner behavior still require live validation.
+
 ## 0.2.2
 
 - Corrected Pathen's placement indicator after inspecting the exact Valheim 1.0.14 `path_v2` prefab: its direct `_GhostOnly` child is serialized inactive, rotated 90 degrees, and uses a 4×4×1 local scale, while the visible nested particle uses Local scaling and therefore ignores its parent's scale. Treadwell now scales the marker plus each nested Local-mode particle's own transform from its captured baseline, without double-scaling particles attached directly to the marker.
-- Addressed the actual-effect failure shared by Level Ground and Pathen after tracing `Player.PlacePiece` → cloned `TerrainOp.Awake` → `TerrainComp.ApplyOperation` → `TerrainOp.Settings.Deserialize`: Valheim uses the selected prefab to size the initial heightmap search but serializes only the operation identity, then resolves the applied settings again from `ObjectDB`. Treadwell now mutates both exact settings sources before cloning, keeps them changed through the synchronous local RPC, and restores both in the finalizer, deduplicating shared references.
+- Attempted to address the actual-effect failure shared by Level Ground and Pathen by mutating both the selected piece-table prefab and the matching local `ObjectDB` entry. Later live testing showed that this still did not change Level Ground's real terrain effect, so this approach was superseded by 0.2.3's final-boundary interception.
 - Retained a hash-pinned extraction record for Pathen's direct inactive, rotated 4×4×1 marker and added executable coverage for the actual dual-source mutation session: Level Ground and Pathen clone/effect lifecycle, the 0.2.1 selected-only failure shape, distinct and shared settings, disabled channels, conflict-safe restoration, partial-application rollback, uniform marker scaling, and pinned call order through the terrain-RPC/ObjectDB resolution path.
 - Preserved the confirmed Alt-wheel camera-zoom suppression, Level Ground's 1–8 m range, Pathen/Paved Road's 1–10 m ranges, Paved Road's 2.2:3 paint-to-smooth ratio, Raise Ground exclusion, per-action session-only radii, and every 0.1.2 road feature.
 - This remains a local test candidate. Level Ground's actual-effect growth, Pathen's visible-indicator and actual-effect growth, and remote-owner/multiplayer radius propagation remain explicitly live-unverified.
