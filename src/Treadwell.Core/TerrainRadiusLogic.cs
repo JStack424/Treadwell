@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Treadwell.Core
 {
@@ -189,6 +190,48 @@ namespace Treadwell.Core
         {
             return isLocalPlayer && inPlaceMode && !isDead && isVanillaHoeTable &&
                    altHeld && !pieceSelectionVisible;
+        }
+    }
+
+    public static class TerrainIndicatorRouting
+    {
+        public static bool CanSynchronize(bool markerExists, bool activeInHierarchy)
+        {
+            // Vanilla terrain prefabs serialize _GhostOnly inactive. Its Transform is
+            // still safe to scale before Player.SetupPlacementGhost activates it.
+            _ = activeInHierarchy;
+            return markerExists;
+        }
+    }
+
+    public static class TerrainMutationRouting
+    {
+        public static bool ContainsReference<T>(IEnumerable<T> targets, T candidate) where T : class
+        {
+            if (targets == null || candidate == null) return false;
+            foreach (var target in targets)
+                if (ReferenceEquals(target, candidate)) return true;
+            return false;
+        }
+    }
+
+    public readonly struct TerrainIndicatorScale
+    {
+        public TerrainIndicatorScale(float x, float y, float z)
+        {
+            X = x;
+            Y = y;
+            Z = z;
+        }
+
+        public float X { get; }
+        public float Y { get; }
+        public float Z { get; }
+
+        public TerrainIndicatorScale ScaleUniformly(float factor)
+        {
+            if (float.IsNaN(factor) || float.IsInfinity(factor) || factor <= 0f) return this;
+            return new TerrainIndicatorScale(X * factor, Y * factor, Z * factor);
         }
     }
 

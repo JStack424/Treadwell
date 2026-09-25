@@ -2,56 +2,80 @@
 
 **Build roads worth taking.**
 
-Treadwell is a focused, vanilla-plus mod that makes Valheim's roads less tedious to build and more rewarding to use:
+Treadwell is a focused, vanilla-plus Valheim mod that makes roads less tedious to build and more rewarding to use. Level Ground, Pathen, and Paved Road can use a larger or smaller synchronized terrain brush, paved roads can be placed without repeatedly moving a stonecutter, and dirt paths and paved roads provide modest sprint bonuses.
 
-- **Adjustable terrain brush:** select the hoe's exact vanilla **Level Ground**, **Pathen**, or **Paved Road**, then hold **Left Alt or Right Alt** and scroll in 0.5 m steps. Level Ground ranges from 1–8 m; Pathen and Paved Road range from 1–10 m. The visible brush and real terrain effect stay proportional.
-- **Input isolation:** while the vanilla hoe is out in placement mode, Alt+scroll does not zoom the camera—even at a radius bound or with an ineligible hoe action selected. Without Alt, with another tool, or while the build-selection UI is open, ordinary zoom stays vanilla. Build-menu selection, placement rotation, controllers, and unrelated tools remain unchanged.
-- **Paved-road building:** place the vanilla paved-road terrain piece without a nearby stonecutter by default, while keeping its stone cost and every other placement rule.
+## Features
+
+- **Adjustable terrain brush:** with the hoe's exact vanilla **Level Ground**, **Pathen**, or **Paved Road** action selected, hold **Left Alt or Right Alt** and scroll up/down in 0.5 m steps. Level Ground ranges from 1–8 m; Pathen and Paved Road range from 1–10 m. The visible `_GhostOnly` brush marker and the placed terrain operation use the same proportional scale.
+- **Input isolation:** while the vanilla hoe is out in placement mode, Alt+scroll does not zoom the camera—even at a radius bound or with an ineligible hoe action selected. Without Alt, with another tool, or while the build-selection UI is open, ordinary camera zoom remains unchanged. Build-menu selection, placement rotation, controllers, and unrelated tools remain vanilla.
+- **Paved-road building:** place the vanilla paved-road terrain piece without a nearby stonecutter by default. Stone cost, placement rules, tool behavior, and every other piece remain vanilla.
 - **Dirt paths:** 10% faster sprinting and 10% less sprint-stamina use by default.
 - **Paved roads:** 20% faster sprinting and 20% less sprint-stamina use by default.
-- Each of the four bonuses is independently configurable from 0% to 100%.
+- All four percentages are independently configurable from 0% to 100%.
+- Bonuses apply only to the local player while sprinting on vanilla terrain-painted paths.
+- A short 0.18-second smoothing window prevents flicker across small gaps in road paint.
+- Cultivated soil, building floors, leaving the ground, and other non-terrain surfaces clear the bonus immediately.
+- No status icon, popup, sound, gameplay message, custom world state, or server requirement.
 
-Only the local player's sprinting on vanilla terrain-painted paths is changed. Walking, sneaking, swimming, jumping, dodging, attacks, carts, creatures, natural terrain, cultivated soil, and building floors are untouched. A short edge-smoothing window prevents bonuses from flickering across tiny gaps in road paint, while cultivated soil, floors, leaving the ground, and other non-terrain surfaces clear them immediately.
+Walking, sneaking, swimming, jumping, dodging, attacks, carts, creatures, natural terrain, cultivated soil, and building floors are unchanged.
 
-Treadwell has no status icon, popup, sound, gameplay message, custom world state, or server requirement.
+Treadwell multiplies Valheim's calculated run-speed factor and final status-effect-adjusted sprint-stamina drain. It does not replace base values or bypass Run skill, equipment, status-effect, or global movement-stamina modifiers.
 
 ## Installation
 
-Install with r2modman or Thunderstore Mod Manager, or extract `plugins/Treadwell/Treadwell.dll` into your Valheim installation's `BepInEx/plugins/Treadwell/` directory.
+Treadwell requires [BepInExPack for Valheim 5.4.2350](https://thunderstore.io/c/valheim/p/denikson/BepInExPack_Valheim/).
 
-[BepInExPack for Valheim 5.4.2350](https://thunderstore.io/c/valheim/p/denikson/BepInExPack_Valheim/) is required.
+Install through r2modman or Thunderstore Mod Manager, or copy `Treadwell.dll` to:
 
-Each player who wants the building convenience or movement bonuses installs Treadwell on their own client. No server installation or configuration synchronization is required.
+```text
+BepInEx/plugins/Treadwell/Treadwell.dll
+```
+
+Each player who wants the building convenience or movement bonuses installs Treadwell on their own client. A server installation is not required, and Treadwell does not synchronize configuration or write custom mod state into the world.
 
 ## Configuration
 
-Treadwell creates six settings in `BepInEx/config/com.jstack424.treadwell.cfg`:
+Treadwell creates exactly six settings in `BepInEx/config/com.jstack424.treadwell.cfg`:
 
-- Master enable
-- Paved roads without stonecutter (default enabled)
-- Dirt sprint-speed bonus percentage (default 10%)
-- Dirt sprint-stamina reduction percentage (default 10%)
-- Paved sprint-speed bonus percentage (default 20%)
-- Paved sprint-stamina reduction percentage (default 20%)
+1. `Enable mod` (default `true`)
+2. `Paved roads without stonecutter` (default `true`)
+3. `Dirt sprint speed bonus (%)` (default `10`)
+4. `Dirt sprint stamina reduction (%)` (default `10`)
+5. `Paved sprint speed bonus (%)` (default `20`)
+6. `Paved sprint stamina reduction (%)` (default `20`)
 
-Radius controls add no configuration setting. Each action keeps its own independent session-only radius, initialized to Level Ground 3 m, Pathen 2 m, and Paved Road 3 m, and changed only through Alt+scroll. Level Ground is constrained to 1–8 m; Pathen and Paved Road are constrained to 1–10 m. Treadwell requires one unique complete vanilla three-brush set in the active tool table, using exact localized identities, operation/recipe shapes, and 3/2/3 m baselines. Prefab object names are diagnostics rather than identity gates, correcting Pathen recognition when Valheim's live object name differs. Missing, changed, or ambiguous matches leave terrain effects untouched.
+Terrain radius intentionally adds no configuration setting. Each action keeps its own independent session-only radius, initialized to its verified vanilla outer radius: Level Ground 3 m, Pathen 2 m, and Paved Road 3 m. Level Ground is constrained to 1–8 m; Pathen and Paved Road are constrained to 1–10 m. The runtime requires one unique complete three-brush set in the active tool's piece table, using each action's exact localized identity, operation shape, recipe fingerprint, and 3/2/3 m baseline. Runtime prefab object names are diagnostic rather than identity gates, which corrects Pathen recognition when Valheim's live object name differs. Zero, missing, changed, or ambiguous matches fail closed without changing the terrain effect.
 
-The stonecutter option is read live. When enabled, Treadwell requires exactly one active-table entry with the semantic Paved Road shape: one root Piece with no additional child Pieces, one paved terrain operation (including child components), an attached crafting-station requirement, and one single-unit Stone resource requirement. The entry's root, Piece, station, and localized names are logged for diagnostics but are not identity gates; the expected Stone resource prefab is checked as part of the semantic shape. Treadwell removes only that Piece's station reference locally; disabling restores the exact captured object. Zero or multiple matches fail closed and leave vanilla requirements intact. Stone cost, unlock knowledge, hoe behavior, repairs, and unrelated pieces remain unchanged. All percentages are independently constrained to 0–100 and are read live.
+The stonecutter option is read live. When enabled, Treadwell identifies exactly one semantic Paved Road entry in the active tool table: one root Piece with no additional child Pieces, one paved terrain operation (including child components), one attached crafting-station requirement, and one single-unit Stone resource requirement. The Paved Road entry's root, Piece, station, and localized display names are diagnostic evidence only, not identity gates; the expected Stone resource prefab is checked as part of the semantic shape. Treadwell then removes only that Piece's crafting-station reference locally. Turning the option off restores the exact captured object. It never changes the resource requirement, unlock knowledge, terrain checks, hoe behavior, repairs, or unrelated pieces and stations. Zero or multiple semantic matches fail closed and leave vanilla requirements intact; a one-time bounded BepInEx diagnostic lists the observed candidate shapes and names for troubleshooting.
 
-If you used an earlier test build, BepInEx may retain its older values. Delete `BepInEx/config/com.jstack424.treadwell.cfg` once to regenerate the current defaults, or set the four percentages manually to 10, 10, 20, and 20.
+All percentages are constrained to `0–100` and are read live. The master switch installs or removes Treadwell's isolated Harmony patches.
+
+If an earlier test build created the configuration file, BepInEx may preserve its older defaults. Delete `BepInEx/config/com.jstack424.treadwell.cfg` once to regenerate the current defaults, or set the four percentages manually to `10`, `10`, `20`, and `20`.
 
 ## Compatibility and safety
 
-Treadwell 0.2.1 uses a contract-based compatibility gate. Valheim's displayed version, Unity version, assembly hash, and MVID are not runtime allowlists, so compatible minor patches and client/server assembly variants are not rejected solely because their build identity differs. Before installing anything, Treadwell requires one exact match for every patched target and overload, matching Harmony patch methods, every accessed game field, and the Unity road-discovery and terrain contracts it needs. Missing, ambiguous, or changed contracts still disable Treadwell safely. A partial patch installation is rolled back before the mod remains disabled.
+Treadwell 0.2.2 uses a contract-based compatibility gate. Valheim's displayed version, Unity version, and loaded `assembly_valheim` MVID are logged as diagnostics, but they are not exact-version blockers. Client and dedicated-server assemblies, and compatible Valheim 1.0 patch releases, may differ in build identity while exposing the same APIs Treadwell needs.
 
-For radius controls, Treadwell accepts only the exact vanilla Level Ground, Pathen, and Paved Road entries, each with one root Piece, one root `TerrainOp`, no legacy `TerrainModifier`, no rotation, and the verified operation/recipe shape. It uniformly scales the placement ghost's active `_GhostOnly` marker, proportionally scales every enabled `TerrainOp.Settings` radius around Valheim's synchronous placement clone, preserves Paved Road's 2.2:3 paint-to-smooth ratio, and restores the original prefab fields in guaranteed finalizer cleanup. Disabled channels stay untouched. Tool/action changes, scene unload, disable, and exceptions clear transient state; conflicting third-party field changes are left untouched.
+Before installing anything, Treadwell verifies every Valheim method and overload it patches or calls, the matching Harmony prefix/postfix shapes, every accessed game field, the Unity component/property methods used for road discovery, and the expected piece-table, resource, enum, and terrain-paint contracts. Each required member must resolve to exactly one compatible signature. Missing or ambiguous members fail closed. Patch installation is transactional: if any Harmony patch fails, Treadwell removes every patch it installed, restores any owned Paved Road station override, and disables all features.
 
-The build is compiled and independently checked against a pinned Valheim 1.0.14 reference assembly; its SHA-256 and MVID protect build provenance only. The paved-road change runs as Valheim enters place mode, before availability refresh, and re-discovers the active-table candidate immediately before vanilla requirement checks. It sets only the uniquely selected semantic Paved Road recipe's crafting-station reference to `null`, locally and reversibly; all resource and placement handling remains vanilla.
+Radius controls recognize only Valheim's exact localized Level Ground, Pathen, and Paved Road actions with their verified semantic shapes. Prefab object names (`mud_road_v2`, `path_v2`, and `paved_road_v2`) are retained as bounded diagnostics, not brittle identity gates. Each action must have exactly one root `Piece`, one root `TerrainOp`, no legacy `TerrainModifier`, no rotation, and the verified operation/recipe shape. Level Ground is smooth + Dirt paint at 3 m; Pathen is Dirt paint at 2 m; Paved Road is 3 m smooth + 2.2 m Paved paint, with its station-backed one-Stone recipe. Treadwell scales the separate placement ghost's `_GhostOnly` geometry uniformly in XYZ even while that vanilla child is inactive, so Pathen's rotated 4×4×1 marker is ready at the correct size when Valheim activates it. During `Player.PlacePiece` only, it proportionally scales every enabled `TerrainOp.Settings` radius channel on both the selected piece prefab and the matching `ObjectDB` terrain-operation registry entry. That covers Valheim's two-stage flow: the clone radius selects affected heightmaps, while the terrain RPC resolves settings again by prefab identity. Both sources are restored exactly in a Harmony finalizer. Paved Road's 2.2:3 paint-to-smooth ratio is preserved, disabled channels are never changed, duplicate settings references are mutated once, and conflicting third-party changes are never overwritten. Changing tools/actions, closing input, scene unload, plugin disable, or any input exception restores or clears transient visual state.
 
-Treadwell 0.1.2's road bonuses and stonecutter-free Paved Road behavior have been live-tested successfully. Treadwell 0.2.1 is a test candidate: Level Ground radius control has encouraging live feedback, while corrected Pathen recognition and camera-zoom isolation still require live validation. Because the terrain RPC carries the operation prefab identity rather than custom radius values, remote-owner and multiplayer radius propagation remains explicitly unverified.
+The build remains compiled and independently checked against the pinned Valheim `1.0.14` / Steam build `25364309` reference bundle. Its hashes and MVID document and protect build provenance only; they are deliberately not compared with the player's runtime assembly. The pinned IL verifies that `PieceTable.UpdateAvailable` reads each table entry's root `Piece`; discovery additionally searches children for the terrain operation. Treadwell applies the uniquely selected semantic Paved Road mutation when Valheim enters place mode, before piece-table availability refreshes, and re-discovers it immediately before vanilla requirement checks. Its `Piece.m_craftingStation` reference is set to `null` without depending on guessed piece, localization, or station identifiers. Valheim's normal recipe-knowledge and resource checks still decide whether the piece is unlocked and affordable. Disable, configuration changes, scene unload, and plugin unload restore the captured original reference. DLC, free-build, stone-count, placement, consumption, stamina, durability, skill, and effect handling remain vanilla.
 
-## Source and issues
+Treadwell 0.1.2's road bonuses and stonecutter-free Paved Road behavior have been live-tested successfully. In the 0.2.x test line, Level Ground radius control and Alt-wheel camera-zoom isolation have positive live confirmation, but a 0.2.1 live test disproved the previous Pathen success claim. Treadwell 0.2.2 is a local test candidate that corrects Pathen's inactive-marker lifecycle and the separate `ObjectDB` settings source used by terrain execution; Pathen still requires live validation. The terrain RPC carries the operation prefab identity rather than custom radius values, so remote-owner and multiplayer radius propagation remains explicitly unverified.
 
-https://github.com/JStack424/Treadwell
+## Development
 
-Licensed under the MIT License.
+Private Valheim and BepInEx assemblies remain untracked and are never packaged.
+
+```bash
+./scripts/build.sh
+./scripts/test-package.sh
+```
+
+The build performs locked restore, warning-as-error Release compilation, pure behavior tests (including exact-contract acceptance/rejection and transactional rollback), an independent assembly-contract test against the pinned provenance assembly, reference fingerprint checks, repository checks, and an exact five-file package audit.
+
+## Source, issues, and license
+
+- Source and issue tracker: https://github.com/JStack424/Treadwell
+- License: [MIT](LICENSE)

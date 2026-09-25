@@ -447,6 +447,35 @@ namespace Treadwell.Tests
                 Near(2.5f, new TerrainRadiusSelection(2.31f).Radius));
             Run("indicator scale is proportional to the selected action baseline", () =>
                 Near(2f, new TerrainRadiusSelection(6f).ScaleFor(3f)));
+            Run("inactive vanilla marker remains eligible for transform synchronization", () =>
+                Equal(true, TerrainIndicatorRouting.CanSynchronize(markerExists: true, activeInHierarchy: false)));
+            Run("missing marker fails closed", () =>
+                Equal(false, TerrainIndicatorRouting.CanSynchronize(markerExists: false, activeInHierarchy: true)));
+            Run("extracted Pathen marker scales uniformly from four-four-one", () =>
+            {
+                var scaled = new TerrainIndicatorScale(4f, 4f, 1f).ScaleUniformly(2.5f);
+                Near(10f, scaled.X);
+                Near(10f, scaled.Y);
+                Near(2.5f, scaled.Z);
+            });
+            Run("invalid indicator factor leaves the marker unchanged", () =>
+            {
+                var scaled = new TerrainIndicatorScale(4f, 4f, 1f).ScaleUniformly(float.NaN);
+                Near(4f, scaled.X);
+                Near(4f, scaled.Y);
+                Near(1f, scaled.Z);
+            });
+            Run("same settings reference is recognized for mutation deduplication", () =>
+            {
+                var settings = new object();
+                Equal(true, TerrainMutationRouting.ContainsReference(new[] { settings }, settings));
+            });
+            Run("distinct settings references are retained for dual-source mutation", () =>
+            {
+                var selected = new object();
+                var registered = new object();
+                Equal(false, TerrainMutationRouting.ContainsReference(new[] { selected }, registered));
+            });
             Run("invalid indicator baseline fails closed to unit scale", () =>
                 Near(1f, new TerrainRadiusSelection(4f).ScaleFor(0f)));
             Run("Paved Road smooth and paint radii preserve their vanilla ratio", () =>

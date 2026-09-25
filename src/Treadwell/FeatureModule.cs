@@ -236,6 +236,11 @@ namespace Treadwell
             CompatibilityGate.RequireMethod(failures, typeof(TerrainOp.Settings), "GetRadius", typeof(float),
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => !method.IsStatic);
+            CompatibilityGate.RequireProperty(failures, typeof(ObjectDB), "instance", typeof(ObjectDB),
+                BindingFlags.Static | BindingFlags.Public, requireGetter: true, requireSetter: false);
+            CompatibilityGate.RequireMethod(failures, typeof(ObjectDB), "TryGetTerrainOp", typeof(bool),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
+                new[] { typeof(string), typeof(TerrainOp).MakeByRefType() }, method => !method.IsStatic);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "GetRunSpeedFactor", typeof(float),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => method.IsFamily && method.IsVirtual);
@@ -729,7 +734,7 @@ namespace Treadwell
             }
 
             var markerObject = marker.gameObject;
-            if (!markerObject.activeInHierarchy)
+            if (!TerrainIndicatorRouting.CanSynchronize(markerObject != null, markerObject.activeInHierarchy))
             {
                 RestoreScaledPlacementGhost();
                 return false;
@@ -743,10 +748,12 @@ namespace Treadwell
 
             var radius = _terrainRadii[binding.Kind];
             var scale = radius.ScaleFor(binding.VanillaRadius);
-            _scaledPlacementGhostAppliedScale = new Vector3(
-                _scaledPlacementGhostBaseScale.x * scale,
-                _scaledPlacementGhostBaseScale.y * scale,
-                _scaledPlacementGhostBaseScale.z * scale);
+            var applied = new TerrainIndicatorScale(
+                    _scaledPlacementGhostBaseScale.x,
+                    _scaledPlacementGhostBaseScale.y,
+                    _scaledPlacementGhostBaseScale.z)
+                .ScaleUniformly(scale);
+            _scaledPlacementGhostAppliedScale = new Vector3(applied.X, applied.Y, applied.Z);
             marker.localScale = _scaledPlacementGhostAppliedScale;
             binding.IndicatorSynchronized = true;
             return true;
@@ -779,7 +786,21 @@ namespace Treadwell
             var radius = _terrainRadii[binding.Kind];
             if (Approximately(radius.Radius, binding.VanillaRadius)) return null;
 
-            var mutation = new RadiusMutation(binding.TerrainOp);
+            // TerrainOp.Awake uses the cloned table prefab's values to find affected
+            // heightmaps, but TerrainComp's RPC resolves the operation settings again
+            // through ObjectDB by prefab name. Keep both authoritative sources changed
+            // for the synchronous placement call, then restore both in the finalizer.
+            var objectDb = ObjectDB.instance;
+            TerrainOp registeredTerrainOp;
+            if (objectDb == null || piece.gameObject == null ||
+                !objectDb.TryGetTerrainOp(piece.gameObject.name, out registeredTerrainOp) ||
+                registeredTerrainOp == null ||
+                !HasExpectedVanillaRadii(binding.Kind, registeredTerrainOp.m_settings))
+            {
+                return null;
+            }
+
+            var mutation = new RadiusMutation(binding.TerrainOp, registeredTerrainOp);
             mutation.Apply(radius.Radius);
             return mutation;
         }
@@ -1074,42 +1095,28 @@ namespace Treadwell
 
         private sealed class RadiusMutation
         {
-            private readonly TerrainOp.Settings _settings;
-            private readonly bool _levelActive;
-            private readonly bool _raiseActive;
-            private readonly bool _smoothActive;
-            private readonly bool _paintActive;
-            private readonly TerrainRadiusValues _original;
-            private TerrainRadiusValues _applied;
-            private bool _isApplied;
+            private readonly List<RadiusMutationTarget> _targets = new List<RadiusMutationTarget>();
 
-            internal RadiusMutation(TerrainOp terrainOp)
+            internal RadiusMutation(params TerrainOp[] terrainOps)
             {
-                if (terrainOp == null || terrainOp.m_settings == null)
-                    throw new ArgumentNullException(nameof(terrainOp));
-                _settings = terrainOp.m_settings;
-                _levelActive = _settings.m_level;
-                _raiseActive = _settings.m_raise;
-                _smoothActive = _settings.m_smooth;
-                _paintActive = _settings.m_paintCleared;
-                _original = new TerrainRadiusValues(
-                    _settings.m_levelRadius,
-                    _settings.m_raiseRadius,
-                    _settings.m_smoothRadius,
-                    _settings.m_paintRadius);
+                if (terrainOps == null || terrainOps.Length == 0)
+                    throw new ArgumentNullException(nameof(terrainOps));
+
+                foreach (var terrainOp in terrainOps)
+                {
+                    if (terrainOp == null || terrainOp.m_settings == null)
+                        throw new ArgumentNullException(nameof(terrainOps));
+                    if (!TerrainMutationRouting.ContainsReference(
+                            _targets.ConvertAll(target => target.Settings), terrainOp.m_settings))
+                        _targets.Add(new RadiusMutationTarget(terrainOp.m_settings));
+                }
             }
 
             internal void Apply(float targetRadius)
             {
-                _applied = _original.ScaleActive(
-                    _levelActive, _raiseActive, _smoothActive, _paintActive, targetRadius);
                 try
                 {
-                    if (_levelActive) _settings.m_levelRadius = _applied.Level;
-                    if (_raiseActive) _settings.m_raiseRadius = _applied.Raise;
-                    if (_smoothActive) _settings.m_smoothRadius = _applied.Smooth;
-                    if (_paintActive) _settings.m_paintRadius = _applied.Paint;
-                    _isApplied = true;
+                    foreach (var target in _targets) target.Apply(targetRadius);
                 }
                 catch
                 {
@@ -1120,31 +1127,77 @@ namespace Treadwell
 
             internal void Restore(ManualLogSource log)
             {
-                if (!_isApplied) return;
+                var conflict = false;
+                foreach (var target in _targets)
+                    conflict |= target.Restore();
+                if (conflict) log?.LogWarning("A terrain-radius field changed during placement; Treadwell left that conflicting field untouched.");
+            }
+        }
+
+        private sealed class RadiusMutationTarget
+        {
+            private readonly bool _levelActive;
+            private readonly bool _raiseActive;
+            private readonly bool _smoothActive;
+            private readonly bool _paintActive;
+            private readonly TerrainRadiusValues _original;
+            private TerrainRadiusValues _applied;
+            private bool _isApplied;
+
+            internal RadiusMutationTarget(TerrainOp.Settings settings)
+            {
+                Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+                _levelActive = Settings.m_level;
+                _raiseActive = Settings.m_raise;
+                _smoothActive = Settings.m_smooth;
+                _paintActive = Settings.m_paintCleared;
+                _original = new TerrainRadiusValues(
+                    Settings.m_levelRadius,
+                    Settings.m_raiseRadius,
+                    Settings.m_smoothRadius,
+                    Settings.m_paintRadius);
+            }
+
+            internal TerrainOp.Settings Settings { get; }
+
+            internal void Apply(float targetRadius)
+            {
+                _applied = _original.ScaleActive(
+                    _levelActive, _raiseActive, _smoothActive, _paintActive, targetRadius);
+                if (_levelActive) Settings.m_levelRadius = _applied.Level;
+                if (_raiseActive) Settings.m_raiseRadius = _applied.Raise;
+                if (_smoothActive) Settings.m_smoothRadius = _applied.Smooth;
+                if (_paintActive) Settings.m_paintRadius = _applied.Paint;
+                _isApplied = true;
+            }
+
+            internal bool Restore()
+            {
+                if (!_isApplied) return false;
 
                 var conflict = false;
                 if (_levelActive)
                 {
-                    if (Approximately(_settings.m_levelRadius, _applied.Level)) _settings.m_levelRadius = _original.Level;
+                    if (Approximately(Settings.m_levelRadius, _applied.Level)) Settings.m_levelRadius = _original.Level;
                     else conflict = true;
                 }
                 if (_raiseActive)
                 {
-                    if (Approximately(_settings.m_raiseRadius, _applied.Raise)) _settings.m_raiseRadius = _original.Raise;
+                    if (Approximately(Settings.m_raiseRadius, _applied.Raise)) Settings.m_raiseRadius = _original.Raise;
                     else conflict = true;
                 }
                 if (_smoothActive)
                 {
-                    if (Approximately(_settings.m_smoothRadius, _applied.Smooth)) _settings.m_smoothRadius = _original.Smooth;
+                    if (Approximately(Settings.m_smoothRadius, _applied.Smooth)) Settings.m_smoothRadius = _original.Smooth;
                     else conflict = true;
                 }
                 if (_paintActive)
                 {
-                    if (Approximately(_settings.m_paintRadius, _applied.Paint)) _settings.m_paintRadius = _original.Paint;
+                    if (Approximately(Settings.m_paintRadius, _applied.Paint)) Settings.m_paintRadius = _original.Paint;
                     else conflict = true;
                 }
                 _isApplied = false;
-                if (conflict) log?.LogWarning("A terrain-radius field changed during placement; Treadwell left that conflicting field untouched.");
+                return conflict;
             }
         }
 

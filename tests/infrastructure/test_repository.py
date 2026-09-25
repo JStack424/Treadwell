@@ -220,8 +220,11 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "ZInput.GetKey(KeyCode.LeftAlt, false)", "ZInput.GetKey(KeyCode.RightAlt, false)",
             "ZInput.GetMouseScrollWheel()", "GetComponentsInChildren<TerrainOp>(true)",
             "_suppressCameraMouseWheelDepth", "ShouldSuppressCameraZoom", 'transform.Find("_GhostOnly")',
-            "markerObject.activeInHierarchy", "marker.localScale = _scaledPlacementGhostAppliedScale",
-            "_scaledPlacementGhostBaseScale.y * scale", "mutation.Apply(radius.Radius)",
+            "TerrainIndicatorRouting.CanSynchronize", "marker.localScale = _scaledPlacementGhostAppliedScale",
+            "new TerrainIndicatorScale", "mutation.Apply(radius.Radius)",
+            "ObjectDB.instance", "TryGetTerrainOp(piece.gameObject.name", "registeredTerrainOp",
+            "new RadiusMutation(binding.TerrainOp, registeredTerrainOp)",
+            "TerrainMutationRouting.ContainsReference", "target.Restore()",
             "RevalidateTerrainRadiusBindings(force: false)", "RevalidateTerrainRadiusBindings(force: true)",
             "InspectPieceTable(_radiusPieceTable)", "if (pair.Value.Count != 1) return false;",
             "ReferenceEquals(binding.TerrainOp, entry.TerrainOps[0])",
@@ -249,6 +252,10 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "paved paint without vanilla recipe shape is excluded",
             "Paved Road smooth and paint radii preserve their vanilla ratio",
             "Pathen changes only its active paint radius",
+            "inactive vanilla marker remains eligible for transform synchronization",
+            "extracted Pathen marker scales uniformly from four-four-one",
+            "same settings reference is recognized for mutation deduplication",
+            "distinct settings references are retained for dual-source mutation",
         ):
             self.assertIn(exclusion, tests)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
@@ -263,7 +270,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         for marker in (
             "ExpectedSha256", "ExpectedMvid", "PieceTable", "UpdateAvailable", "ZNetScene", "OnDestroy",
             "SetPlaceMode", "GetBuildTool", "UpdateAvailablePiecesList", "HaveRequirements", "UpdatePlacement", "PlacePiece",
-            "InPlaceMode", "IsDead", "GetSelectedPiece", "GetRadius",
+            "InPlaceMode", "IsDead", "GetSelectedPiece", "GetRadius", "TryGetTerrainOp",
+            "RPC_ApplyOperation", "Serialize", "Deserialize",
             "UpdateWalking", "CheckRun", "GetRunSpeedFactor", "ModifyRunStaminaDrain", "UseStamina",
             "CurrentGameVersion", "GetPaintMask", "m_character",
             "m_localPlayer", "m_placementGhost", "m_pieces", "m_craftingStation", "m_resources", "m_resItem", "m_amount",

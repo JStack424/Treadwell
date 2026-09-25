@@ -47,7 +47,18 @@ namespace Treadwell.Compatibility.Tests
             contract.Method("TerrainModifier", "GetRadius", "System.Single", Array.Empty<string>(), MethodAttributes.Public);
             contract.Method("TerrainOp", "GetRadius", "System.Single", Array.Empty<string>(), MethodAttributes.Public);
             contract.Method("TerrainOp", "Awake", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
+            contract.NestedMethod("TerrainOp", "Settings", "Serialize", "System.Void",
+                new[] { "ZPackage", "UnityEngine.GameObject" }, MethodAttributes.Public);
+            contract.NestedMethod("TerrainOp", "Settings", "Deserialize", "Settings",
+                new[] { "ZPackage" }, MethodAttributes.Public | MethodAttributes.Static);
             contract.Method("TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" }, MethodAttributes.Public);
+            contract.Method("TerrainComp", "RPC_ApplyOperation", "System.Void",
+                new[] { "System.Int64", "ZPackage" }, MethodAttributes.Private);
+            contract.Method("ObjectDB", "get_instance", "ObjectDB", Array.Empty<string>(), MethodAttributes.Public | MethodAttributes.Static);
+            contract.Method("ObjectDB", "TryGetTerrainOp", "System.Boolean",
+                new[] { "System.String", "TerrainOp&" }, MethodAttributes.Public);
+            contract.Method("ObjectDB", "TryGetTerrainOp", "System.Boolean",
+                new[] { "System.Int32", "TerrainOp&" }, MethodAttributes.Public);
             contract.Method("Character", "UpdateWalking", "System.Void", new[] { "System.Single" }, MethodAttributes.Private);
             contract.Method("Player", "CheckRun", "System.Boolean", new[] { "UnityEngine.Vector3", "System.Single" },
                 MethodAttributes.Family | MethodAttributes.Virtual);
@@ -119,6 +130,15 @@ namespace Treadwell.Compatibility.Tests
             contract.MethodCalls(
                 "TerrainOp", "Awake", "System.Void", Array.Empty<string>(),
                 "TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" });
+            contract.NestedMethodCalls(
+                "TerrainOp", "Settings", "Deserialize", "Settings", new[] { "ZPackage" },
+                "ObjectDB", "TryGetTerrainOp", "System.Boolean", new[] { "System.Int32", "TerrainOp&" });
+            contract.MethodCallsNested(
+                "TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" },
+                "TerrainOp", "Settings", "Serialize", "System.Void", new[] { "ZPackage", "UnityEngine.GameObject" });
+            contract.MethodCallsNested(
+                "TerrainComp", "RPC_ApplyOperation", "System.Void", new[] { "System.Int64", "ZPackage" },
+                "TerrainOp", "Settings", "Deserialize", "Settings", new[] { "ZPackage" });
             contract.MethodCalls(
                 "Player", "SetPlaceMode", "System.Void", new[] { "PieceTable" },
                 "Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>());
@@ -156,7 +176,7 @@ namespace Treadwell.Compatibility.Tests
                 MethodAttributes.Public | MethodAttributes.Static);
             utilsContract.Method("ZInput", "GetKey", "System.Boolean",
                 new[] { "UnityEngine.KeyCode", "System.Boolean" }, MethodAttributes.Public | MethodAttributes.Static);
-            Console.WriteLine(_passed + "/76 compatibility contract checks passed");
+            Console.WriteLine(_passed + "/85 compatibility contract checks passed");
             return 0;
         }
 
@@ -469,6 +489,26 @@ namespace Treadwell.Compatibility.Tests
                     sourceType + "." + sourceName + " calls " + targetType + "." + targetName);
             }
 
+            internal void NestedMethodCalls(
+                string sourceOuter, string sourceNested, string sourceName, string sourceReturn, string[] sourceParameters,
+                string targetType, string targetName, string targetReturn, string[] targetParameters)
+            {
+                var source = FindNestedMethodHandle(sourceOuter, sourceNested, sourceName, sourceReturn, sourceParameters);
+                var target = FindMethodHandle(targetType, targetName, targetReturn, targetParameters);
+                RequireInstructionToken(source, new byte[] { 0x28, 0x6f }, MetadataTokens.GetToken(target),
+                    sourceOuter + "." + sourceNested + "." + sourceName + " calls " + targetType + "." + targetName);
+            }
+
+            internal void MethodCallsNested(
+                string sourceType, string sourceName, string sourceReturn, string[] sourceParameters,
+                string targetOuter, string targetNested, string targetName, string targetReturn, string[] targetParameters)
+            {
+                var source = FindMethodHandle(sourceType, sourceName, sourceReturn, sourceParameters);
+                var target = FindNestedMethodHandle(targetOuter, targetNested, targetName, targetReturn, targetParameters);
+                RequireInstructionToken(source, new byte[] { 0x28, 0x6f }, MetadataTokens.GetToken(target),
+                    sourceType + "." + sourceName + " calls " + targetOuter + "." + targetNested + "." + targetName);
+            }
+
             private void RequireInstructionToken(MethodDefinitionHandle source, byte[] opcodes, int token, string label)
             {
                 var method = _reader.GetMethodDefinition(source);
@@ -509,6 +549,22 @@ namespace Treadwell.Compatibility.Tests
                     var method = _reader.GetMethodDefinition(handle);
                     var signature = method.DecodeSignature(_provider, null);
                     return _reader.GetString(method.Name) == methodName && signature.ParameterTypes.SequenceEqual(parameters);
+                });
+            }
+
+            private MethodDefinitionHandle FindNestedMethodHandle(
+                string outerName, string nestedName, string methodName, string returnType, string[] parameters)
+            {
+                var outer = _reader.GetTypeDefinition(FindTopLevelHandle(outerName));
+                var nested = outer.GetNestedTypes()
+                    .Select(handle => _reader.GetTypeDefinition(handle))
+                    .Single(type => _reader.GetString(type.Name) == nestedName);
+                return nested.GetMethods().Single(handle =>
+                {
+                    var method = _reader.GetMethodDefinition(handle);
+                    if (_reader.GetString(method.Name) != methodName) return false;
+                    var signature = method.DecodeSignature(_provider, null);
+                    return signature.ReturnType == returnType && signature.ParameterTypes.SequenceEqual(parameters);
                 });
             }
 
