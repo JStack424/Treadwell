@@ -54,6 +54,14 @@ namespace Treadwell.Compatibility.Tests
             contract.Method("TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" }, MethodAttributes.Public);
             contract.Method("TerrainComp", "RPC_ApplyOperation", "System.Void",
                 new[] { "System.Int64", "ZPackage" }, MethodAttributes.Private);
+            contract.Method("ZNetView", "InvokeRPC", "System.Void",
+                new[] { "System.String", "System.Object[]" }, MethodAttributes.Public);
+            contract.Method("ZRoutedRpc", "InvokeRoutedRPC", "System.Void",
+                new[] { "System.Int64", "ZDOID", "System.String", "System.Object[]" }, MethodAttributes.Public);
+            contract.Method("ZRoutedRpc", "HandleRoutedRPC", "System.Void",
+                new[] { "RoutedRPCData" }, MethodAttributes.Private);
+            contract.Method("ZRoutedRpc", "RouteRPC", "System.Void",
+                new[] { "RoutedRPCData" }, MethodAttributes.Private);
             contract.Method("ObjectDB", "get_instance", "ObjectDB", Array.Empty<string>(), MethodAttributes.Public | MethodAttributes.Static);
             contract.Method("ObjectDB", "TryGetTerrainOp", "System.Boolean",
                 new[] { "System.String", "TerrainOp&" }, MethodAttributes.Public);
@@ -130,12 +138,24 @@ namespace Treadwell.Compatibility.Tests
             contract.MethodCalls(
                 "TerrainOp", "Awake", "System.Void", Array.Empty<string>(),
                 "TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" });
+            contract.MethodCallOrder(
+                "TerrainOp", "Awake", "System.Void", Array.Empty<string>(),
+                "TerrainOp", "GetRadius", "System.Single", Array.Empty<string>(),
+                "TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" });
             contract.NestedMethodCalls(
                 "TerrainOp", "Settings", "Deserialize", "Settings", new[] { "ZPackage" },
                 "ObjectDB", "TryGetTerrainOp", "System.Boolean", new[] { "System.Int32", "TerrainOp&" });
             contract.MethodCallsNested(
                 "TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" },
                 "TerrainOp", "Settings", "Serialize", "System.Void", new[] { "ZPackage", "UnityEngine.GameObject" });
+            contract.NestedCallBeforeMethod(
+                "TerrainComp", "ApplyOperation", "System.Void", new[] { "TerrainOp" },
+                "TerrainOp", "Settings", "Serialize", "System.Void", new[] { "ZPackage", "UnityEngine.GameObject" },
+                "ZNetView", "InvokeRPC", "System.Void", new[] { "System.String", "System.Object[]" });
+            contract.MethodCallOrder(
+                "ZRoutedRpc", "InvokeRoutedRPC", "System.Void", new[] { "System.Int64", "ZDOID", "System.String", "System.Object[]" },
+                "ZRoutedRpc", "HandleRoutedRPC", "System.Void", new[] { "RoutedRPCData" },
+                "ZRoutedRpc", "RouteRPC", "System.Void", new[] { "RoutedRPCData" });
             contract.MethodCallsNested(
                 "TerrainComp", "RPC_ApplyOperation", "System.Void", new[] { "System.Int64", "ZPackage" },
                 "TerrainOp", "Settings", "Deserialize", "Settings", new[] { "ZPackage" });
@@ -176,7 +196,7 @@ namespace Treadwell.Compatibility.Tests
                 MethodAttributes.Public | MethodAttributes.Static);
             utilsContract.Method("ZInput", "GetKey", "System.Boolean",
                 new[] { "UnityEngine.KeyCode", "System.Boolean" }, MethodAttributes.Public | MethodAttributes.Static);
-            Console.WriteLine(_passed + "/85 compatibility contract checks passed");
+            Console.WriteLine(_passed + "/92 compatibility contract checks passed");
             return 0;
         }
 
@@ -507,6 +527,42 @@ namespace Treadwell.Compatibility.Tests
                 var target = FindNestedMethodHandle(targetOuter, targetNested, targetName, targetReturn, targetParameters);
                 RequireInstructionToken(source, new byte[] { 0x28, 0x6f }, MetadataTokens.GetToken(target),
                     sourceType + "." + sourceName + " calls " + targetOuter + "." + targetNested + "." + targetName);
+            }
+
+            internal void MethodCallOrder(
+                string sourceType, string sourceName, string sourceReturn, string[] sourceParameters,
+                string firstType, string firstName, string firstReturn, string[] firstParameters,
+                string secondType, string secondName, string secondReturn, string[] secondParameters)
+            {
+                var source = FindMethodHandle(sourceType, sourceName, sourceReturn, sourceParameters);
+                var first = FindMethodHandle(firstType, firstName, firstReturn, firstParameters);
+                var second = FindMethodHandle(secondType, secondName, secondReturn, secondParameters);
+                RequireCallOrder(source, first, second,
+                    sourceType + "." + sourceName + " calls " + firstType + "." + firstName + " before " + secondType + "." + secondName);
+            }
+
+            internal void NestedCallBeforeMethod(
+                string sourceType, string sourceName, string sourceReturn, string[] sourceParameters,
+                string firstOuter, string firstNested, string firstName, string firstReturn, string[] firstParameters,
+                string secondType, string secondName, string secondReturn, string[] secondParameters)
+            {
+                var source = FindMethodHandle(sourceType, sourceName, sourceReturn, sourceParameters);
+                var first = FindNestedMethodHandle(firstOuter, firstNested, firstName, firstReturn, firstParameters);
+                var second = FindMethodHandle(secondType, secondName, secondReturn, secondParameters);
+                RequireCallOrder(source, first, second,
+                    sourceType + "." + sourceName + " calls " + firstOuter + "." + firstNested + "." + firstName +
+                    " before " + secondType + "." + secondName);
+            }
+
+            private void RequireCallOrder(MethodDefinitionHandle source, EntityHandle first, EntityHandle second, string label)
+            {
+                var il = MethodIl(source);
+                var firstOffsets = FindCallOffsets(il, MetadataTokens.GetToken(first));
+                var secondOffsets = FindCallOffsets(il, MetadataTokens.GetToken(second));
+                if (firstOffsets.Count == 0 || secondOffsets.Count == 0 || firstOffsets[0] >= secondOffsets[0])
+                    throw new InvalidOperationException(label + " order mismatch");
+                _passed++;
+                Console.WriteLine("PASS IL " + label);
             }
 
             private void RequireInstructionToken(MethodDefinitionHandle source, byte[] opcodes, int token, string label)

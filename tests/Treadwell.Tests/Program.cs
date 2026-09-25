@@ -500,6 +500,50 @@ namespace Treadwell.Tests
                 Near(2f, selected.PaintRadius);
                 Near(2f, registered.PaintRadius);
             });
+            Run("Level Ground clone search and registered effect both use the selected radius before restore", () =>
+            {
+                var selectedPrefab = FakeTerrainRadiusTarget.LevelGround();
+                var registeredEffect = FakeTerrainRadiusTarget.LevelGround();
+                var mutation = new TerrainRadiusMutationSession(new[] { selectedPrefab, registeredEffect });
+                mutation.Apply(6f);
+                // Unity Instantiate copies the selected prefab before TerrainOp.Awake asks for its outer radius.
+                Near(6f, selectedPrefab.MaximumActiveRadius());
+                // TerrainOp.Settings.Deserialize resolves this distinct ObjectDB source for the real operation.
+                Near(6f, registeredEffect.MaximumActiveRadius());
+                Equal(false, mutation.Restore());
+                Near(3f, selectedPrefab.MaximumActiveRadius());
+                Near(3f, registeredEffect.MaximumActiveRadius());
+            });
+            Run("Pathen clone search and registered effect both use the selected radius before restore", () =>
+            {
+                var selectedPrefab = FakeTerrainRadiusTarget.Pathen();
+                var registeredEffect = FakeTerrainRadiusTarget.Pathen();
+                var mutation = new TerrainRadiusMutationSession(new[] { selectedPrefab, registeredEffect });
+                mutation.Apply(5f);
+                Near(5f, selectedPrefab.MaximumActiveRadius());
+                Near(5f, registeredEffect.MaximumActiveRadius());
+                Equal(false, mutation.Restore());
+                Near(2f, selectedPrefab.MaximumActiveRadius());
+                Near(2f, registeredEffect.MaximumActiveRadius());
+            });
+            Run("the 0.2.1 selected-only target leaves the resolved effect at vanilla radius", () =>
+            {
+                var selectedPrefab = FakeTerrainRadiusTarget.LevelGround();
+                var registeredEffect = FakeTerrainRadiusTarget.LevelGround();
+                var oldMutationShape = new TerrainRadiusMutationSession(new[] { selectedPrefab });
+                oldMutationShape.Apply(6f);
+                Near(6f, selectedPrefab.MaximumActiveRadius());
+                Near(3f, registeredEffect.MaximumActiveRadius());
+                oldMutationShape.Restore();
+
+                selectedPrefab = FakeTerrainRadiusTarget.Pathen();
+                registeredEffect = FakeTerrainRadiusTarget.Pathen();
+                oldMutationShape = new TerrainRadiusMutationSession(new[] { selectedPrefab });
+                oldMutationShape.Apply(5f);
+                Near(5f, selectedPrefab.MaximumActiveRadius());
+                Near(2f, registeredEffect.MaximumActiveRadius());
+                oldMutationShape.Restore();
+            });
             Run("shared settings identity is mutated only once", () =>
             {
                 var settings = FakeTerrainRadiusTarget.Pathen();
@@ -786,6 +830,10 @@ namespace Treadwell.Tests
                 }
             }
             internal bool ThrowOnPaintWrite { get; set; }
+
+            internal float MaximumActiveRadius() => new TerrainRadiusValues(
+                LevelRadius, RaiseRadius, SmoothRadius, PaintRadius).MaximumActiveRadius(
+                LevelActive, RaiseActive, SmoothActive, PaintActive);
         }
 
         private static void Run(string name, Action test)
