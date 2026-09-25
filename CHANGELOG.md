@@ -6,7 +6,7 @@
 - Addressed the actual-effect failure shared by Level Ground and Pathen after tracing `Player.PlacePiece` → cloned `TerrainOp.Awake` → `TerrainComp.ApplyOperation` → `TerrainOp.Settings.Deserialize`: Valheim uses the selected prefab to size the initial heightmap search but serializes only the operation identity, then resolves the applied settings again from `ObjectDB`. Treadwell now mutates both exact settings sources before cloning, keeps them changed through the synchronous local RPC, and restores both in the finalizer, deduplicating shared references.
 - Retained a hash-pinned extraction record for Pathen's direct inactive, rotated 4×4×1 marker and added executable coverage for the actual dual-source mutation session: Level Ground and Pathen clone/effect lifecycle, the 0.2.1 selected-only failure shape, distinct and shared settings, disabled channels, conflict-safe restoration, partial-application rollback, uniform marker scaling, and pinned call order through the terrain-RPC/ObjectDB resolution path.
 - Preserved the confirmed Alt-wheel camera-zoom suppression, Level Ground's 1–8 m range, Pathen/Paved Road's 1–10 m ranges, Paved Road's 2.2:3 paint-to-smooth ratio, Raise Ground exclusion, per-action session-only radii, and every 0.1.2 road feature.
-- This remains a local test candidate. Level Ground and Pathen actual-effect growth, plus remote-owner/multiplayer radius propagation, remain explicitly live-unverified.
+- This remains a local test candidate. Level Ground's actual-effect growth, Pathen's visible-indicator and actual-effect growth, and remote-owner/multiplayer radius propagation remain explicitly live-unverified.
 
 ## 0.2.1
 
