@@ -8,5 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="../../src/$(ModIdentifier).Core/$(ModIdentifier).Core.csproj" />
     <None Include="../fixtures/path_v2-prefab.json" Link="fixtures/path_v2-prefab.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../fixtures/key-hints-ui.json" Link="fixtures/key-hints-ui.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -9,6 +9,7 @@ using HarmonyLib;
 using TMPro;
 using Treadwell.Core;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Treadwell
 {
@@ -536,6 +537,10 @@ namespace Treadwell
                 BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireField(failures, typeof(KeyHints), "m_buildAlternativePlacingKey", typeof(TextMeshProUGUI),
                 BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(UIInputHint), "m_gamepadHint", typeof(GameObject),
+                BindingFlags.Instance | BindingFlags.Public);
+            CompatibilityGate.RequireField(failures, typeof(UIInputHint), "m_mouseKeyboardHint", typeof(GameObject),
+                BindingFlags.Instance | BindingFlags.Public);
             CompatibilityGate.RequireMethod(failures, typeof(ZInput), "IsGamepadActive", typeof(bool),
                 BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => method.IsStatic);
@@ -555,6 +560,8 @@ namespace Treadwell
                 BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: true);
             CompatibilityGate.RequireProperty(failures, typeof(TMP_Text), "text", typeof(string),
                 BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: true);
+            CompatibilityGate.RequireProperty(failures, typeof(LayoutElement), "ignoreLayout", typeof(bool),
+                BindingFlags.Instance | BindingFlags.Public, requireGetter: true, requireSetter: false);
             CompatibilityGate.RequireProperty(failures, typeof(Localization), "instance", typeof(Localization),
                 BindingFlags.Static | BindingFlags.Public, requireGetter: true, requireSetter: false);
             CompatibilityGate.RequireMethod(failures, typeof(Localization), "RemoveTextFromCache", typeof(void),

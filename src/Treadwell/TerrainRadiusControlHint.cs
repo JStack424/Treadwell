@@ -1,7 +1,9 @@
 #nullable disable
 using System;
 using TMPro;
+using Treadwell.Core;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Treadwell
 {
@@ -90,16 +92,36 @@ namespace Treadwell
             var buildHints = owner.m_buildHints;
             var templateLabel = owner.m_buildAlternativePlacingKey;
             var template = templateLabel != null ? templateLabel.gameObject : null;
-            var parent = template != null ? template.transform.parent : null;
-            if (buildHints == null || template == null || parent == null ||
-                !BelongsToBuildHintRow(parent, buildHints.transform))
+            var buildRoot = buildHints != null ? buildHints.transform : null;
+            var inputHint = buildHints != null ? buildHints.GetComponent<UIInputHint>() : null;
+            var gamepad = inputHint != null ? inputHint.m_gamepadHint : null;
+            var keyboard = inputHint != null ? inputHint.m_mouseKeyboardHint : null;
+            var gamepadTransform = gamepad != null ? gamepad.transform : null;
+            var keyboardTransform = keyboard != null ? keyboard.transform : null;
+            var templateTransform = template != null ? template.transform : null;
+            var sourceLayout = template != null ? template.GetComponent<LayoutElement>() : null;
+
+            // Valheim's m_buildAlternativePlacingKey is a Gamepad child. Clone its
+            // simple TMP/LayoutElement shape into the sibling Keyboard layout so
+            // the owned hint is in the branch that is actually active for Alt-wheel.
+            var compatible = buildRoot != null && templateTransform != null &&
+                             gamepadTransform != null && keyboardTransform != null &&
+                             TerrainRadiusHintLayoutRouting.CanAttach(
+                                 !ReferenceEquals(gamepadTransform, keyboardTransform),
+                                 ReferenceEquals(gamepadTransform.parent, buildRoot),
+                                 ReferenceEquals(keyboardTransform.parent, buildRoot),
+                                 ReferenceEquals(templateTransform.parent, gamepadTransform),
+                                 gamepad.GetComponent<HorizontalLayoutGroup>() != null,
+                                 keyboard.GetComponent<HorizontalLayoutGroup>() != null,
+                                 sourceLayout != null && !sourceLayout.ignoreLayout);
+            if (!compatible)
             {
                 _failedOwner = owner;
                 return;
             }
 
             var hint = (GameObject)UnityEngine.Object.Instantiate(
-                (UnityEngine.Object)template, parent, false);
+                (UnityEngine.Object)template, keyboardTransform, false);
             _owner = owner;
             _hint = hint;
 
@@ -111,15 +133,6 @@ namespace Treadwell
             hint.name = ObjectName;
             hint.transform.SetAsLastSibling();
             hint.SetActive(false);
-        }
-
-        private static bool BelongsToBuildHintRow(Transform parent, Transform buildHintRoot)
-        {
-            for (var current = parent; current != null; current = current.parent)
-            {
-                if (ReferenceEquals(current, buildHintRoot)) return true;
-            }
-            return false;
         }
 
         private static void DestroyStaleOwnedHints(KeyHints owner, GameObject retained)

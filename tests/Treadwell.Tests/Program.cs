@@ -736,6 +736,48 @@ namespace Treadwell.Tests
                     .ScaleActive(false, false, false, true, radius.Radius);
                 Near(5f, scaled.Paint);
             });
+            Run("pinned HUD proves the 0.2.4 template belongs to the gamepad branch", () =>
+            {
+                var fixturePath = Path.Combine(AppContext.BaseDirectory, "fixtures", "key-hints-ui.json");
+                using var fixture = JsonDocument.Parse(File.ReadAllText(fixturePath));
+                var root = fixture.RootElement;
+                var source = root.GetProperty("alternative_placing_label");
+                var gamepad = root.GetProperty("gamepad_container");
+                Equal("m_buildAlternativePlacingKey", source.GetProperty("key_hints_field").GetString()!);
+                Equal("Gamepad", source.GetProperty("direct_child_of").GetString()!);
+                Equal("m_gamepadHint", gamepad.GetProperty("ui_input_hint_field").GetString()!);
+                Equal(false, gamepad.GetProperty("serialized_active").GetBoolean());
+            });
+            Run("pinned HUD proves a compatible active keyboard layout target", () =>
+            {
+                var fixturePath = Path.Combine(AppContext.BaseDirectory, "fixtures", "key-hints-ui.json");
+                using var fixture = JsonDocument.Parse(File.ReadAllText(fixturePath));
+                var root = fixture.RootElement;
+                var source = root.GetProperty("alternative_placing_label");
+                var gamepad = root.GetProperty("gamepad_container");
+                var keyboard = root.GetProperty("keyboard_container");
+                Equal("m_mouseKeyboardHint", keyboard.GetProperty("ui_input_hint_field").GetString()!);
+                Equal(true, keyboard.GetProperty("serialized_active").GetBoolean());
+                Equal("UnityEngine.UI.HorizontalLayoutGroup", gamepad.GetProperty("layout").GetString()!);
+                Equal(gamepad.GetProperty("layout").GetString()!, keyboard.GetProperty("layout").GetString()!);
+                Equal(true, source.GetProperty("has_layout_element").GetBoolean());
+                Equal(false, source.GetProperty("layout_element_ignore_layout").GetBoolean());
+                Equal(true, keyboard.GetProperty("direct_child_of_build_hints").GetBoolean());
+            });
+            Run("brush-size hint accepts only the validated keyboard sibling layout", () =>
+                Equal(true, TerrainRadiusHintLayoutRouting.CanAttach(
+                    true, true, true, true, true, true, true)));
+            Run("brush-size hint rejects every missing or changed hierarchy edge", () =>
+            {
+                for (var missing = 0; missing < 7; missing++)
+                {
+                    var contract = new[] { true, true, true, true, true, true, true };
+                    contract[missing] = false;
+                    Equal(false, TerrainRadiusHintLayoutRouting.CanAttach(
+                        contract[0], contract[1], contract[2], contract[3],
+                        contract[4], contract[5], contract[6]));
+                }
+            });
             Run("brush-size hint appears for an exact eligible keyboard selection", () =>
                 Equal(true, TerrainRadiusControlHintRouting.ShouldShow(
                     true, true, false, false, false, true, TerrainBrushKind.LevelGround)));

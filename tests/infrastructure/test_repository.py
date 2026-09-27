@@ -116,11 +116,16 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             'typeof(Color), "b"', 'typeof(Color), "a"', 'typeof(UnityEngine.Object), "op_Equality"',
             'typeof(UnityEngine.Object), "op_Inequality"', 'typeof(Harmony), "Patch"',
             'typeof(Harmony), "UnpatchSelf"', 'typeof(AccessTools), "DeclaredMethod"',
-            'typeof(Transform), "localScale"', 'typeof(Transform), "parent"', 'typeof(Transform), "Find"', 'typeof(Transform), "SetAsLastSibling"',
-            'typeof(GameObject), "transform"', 'typeof(GameObject), "SetActive"', 'typeof(UnityEngine.Object), "Instantiate"', 'typeof(TMP_Text), "text"',
-            'typeof(Localization), "instance"', 'typeof(Localization), "RemoveTextFromCache"',
+            'typeof(Transform), "localScale"', 'typeof(Transform), "Find"',
+            'typeof(GameObject), "transform"', 'typeof(TMP_Text), "text"',
             'typeof(Time), "frameCount"', 'typeof(GameCamera), "UpdateCamera"', 'typeof(TerrainComp), "DoOperation"', 'typeof(KeyHints), "UpdateHints"',
-            'typeof(KeyHints), "m_buildHints"', 'typeof(KeyHints), "m_buildAlternativePlacingKey"', 'typeof(ZInput), "GetKey"', 'typeof(ZInput), "IsGamepadActive"',
+            'typeof(KeyHints), "m_buildHints"', 'typeof(KeyHints), "m_buildAlternativePlacingKey"',
+            'typeof(UIInputHint), "m_gamepadHint"', 'typeof(UIInputHint), "m_mouseKeyboardHint"',
+            'typeof(Transform), "parent"', 'typeof(Transform), "SetAsLastSibling"',
+            'typeof(GameObject), "SetActive"', 'typeof(UnityEngine.Object), "Instantiate"',
+            'typeof(UnityEngine.Object), "Destroy"', 'typeof(LayoutElement), "ignoreLayout"',
+            'typeof(Localization), "RemoveTextFromCache"',
+            'typeof(ZInput), "GetKey"', 'typeof(ZInput), "IsGamepadActive"',
             'typeof(ZInput), "GetMouseScrollWheel"', 'typeof(Hud), "IsPieceSelectionVisible"',
         ):
             self.assertIn(runtime_contract, module)
@@ -133,7 +138,9 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         hard_gate = module[module.index("public override void ValidateCompatibility"):module.index("protected override void InstallPatches")]
         for optional_ui_contract in (
             'typeof(KeyHints), "UpdateHints"', 'typeof(KeyHints), "m_buildHints"',
-            'typeof(KeyHints), "m_buildAlternativePlacingKey"', 'typeof(ZInput), "IsGamepadActive"',
+            'typeof(KeyHints), "m_buildAlternativePlacingKey"', 'typeof(UIInputHint), "m_gamepadHint"',
+            'typeof(UIInputHint), "m_mouseKeyboardHint"', 'typeof(ZInput), "IsGamepadActive"',
+            'typeof(TMP_Text), "text"', 'typeof(LayoutElement), "ignoreLayout"',
             'typeof(Localization), "RemoveTextFromCache"',
         ):
             self.assertNotIn(optional_ui_contract, hard_gate)
@@ -279,26 +286,34 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn('string.Equals(name, "_HoePieceTable(Clone)", StringComparison.Ordinal)', module)
         self.assertNotIn("_suppressMouseWheelFrame", module)
         for marker in (
-            'ObjectName = "TreadwellTerrainRadiusControlHint"', 'ActionText = "Change Size"',
-            'ShortcutText = "Alt + Scroll"', "owner.m_buildHints", "owner.m_buildAlternativePlacingKey",
-            "template.transform.parent", "BelongsToBuildHintRow", "hint.transform.SetAsLastSibling()", "hint.SetActive(false)",
-            "GetComponent<TMP_Text>()", "Localization.instance?.RemoveTextFromCache(label)",
-            'label.text = ShortcutText + " — " + ActionText',
-            "UnityEngine.Object.Destroy(hint)", "DestroyStaleOwnedHints", "FailForOwner",
+            "owner.m_buildHints", "owner.m_buildAlternativePlacingKey", "GetComponent<UIInputHint>()",
+            "inputHint.m_gamepadHint", "inputHint.m_mouseKeyboardHint", "gamepadTransform.parent",
+            "keyboardTransform.parent", "templateTransform.parent", "TerrainRadiusHintLayoutRouting.CanAttach",
+            "GetComponent<HorizontalLayoutGroup>()",
+            "template.GetComponent<LayoutElement>()", "Instantiate", "keyboardTransform", "SetAsLastSibling",
+            "DestroyStaleOwnedHints", 'ShortcutText + " — " + ActionText', "FailForOwner",
+            "if (_hint != null && !ReferenceEquals(_owner, owner)) Detach()", "ReferenceEquals(_failedOwner, owner)",
         ):
             self.assertIn(marker, hint)
-        self.assertNotIn("m_buildMenuHintsKB", hint)
-        self.assertNotIn("m_buildMenuHintsGP", hint)
-        self.assertNotRegex(hint, r"new\s+GameObject|AddComponent")
+        for forbidden_hint_path in (
+            "TerrainRadiusControlHintText", "templateLabel.text =", "owner.m_buildAlternativePlacingKey.text =",
+            "new GameObject", "AddComponent",
+        ):
+            self.assertNotIn(forbidden_hint_path, hint)
+        self.assertIn('ShortcutText = "Alt + Scroll"', hint)
+        self.assertIn('ActionText = "Change Size"', hint)
+        self.assertEqual(1, hint.count("if (_hint == null) Attach(owner);"))
+        self.assertIn("if (_hint != null) _hint.SetActive(true);", hint)
+        self.assertIn("if (_hint != null) _hint.SetActive(false);", hint)
         self.assertIn("selectedBrush == TerrainBrushKind.LevelGround", core)
         self.assertIn("selectedBrush == TerrainBrushKind.Pathen", core)
         self.assertIn("selectedBrush == TerrainBrushKind.PavedRoad", core)
         hint_query = module[module.index("private bool ShouldShowTerrainRadiusControlHint"):
                             module.index("private bool ShouldSuppressCameraZoom")]
-        self.assertIn("_radiusValidationResult", hint_query)
         self.assertIn("_terrainBrushes.Count == 3", hint_query)
-        self.assertNotIn("RefreshTerrainRadiusBrushes", hint_query)
+        self.assertIn("_radiusValidationResult", hint_query)
         self.assertNotIn("RevalidateTerrainRadiusBindings", hint_query)
+        self.assertNotIn("RefreshTerrainRadiusBrushes", hint_query)
         for exclusion in (
             "Raise Ground is excluded", "cultivator paint is excluded", "Pathen live shape tolerates Valheim prefab object renaming",
             "ordinary hammer piece is excluded", "legacy TerrainModifier addition is excluded",
@@ -321,6 +336,10 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "restoration preserves a conflicting runtime field",
             "mutation never changes disabled terrain channels",
             "partial application rolls back fields already changed",
+            "pinned HUD proves the 0.2.4 template belongs to the gamepad branch",
+            "pinned HUD proves a compatible active keyboard layout target",
+            "brush-size hint accepts only the validated keyboard sibling layout",
+            "brush-size hint rejects every missing or changed hierarchy edge",
             "brush-size hint appears for an exact eligible keyboard selection",
             "brush-size hint supports Pathen and Paved Road",
             "brush-size hint excludes Raise Ground and unrelated actions",
@@ -343,8 +362,21 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertEqual([1.0, 1.0, 1.0], particle["local_scale"])
         self.assertEqual("Local", particle["scaling_mode"])
         self.assertEqual(1, particle["scaling_mode_value"])
+        hints_fixture = json.loads((ROOT / "tests" / "fixtures" / "key-hints-ui.json").read_text())
+        self.assertEqual("1.0.14", hints_fixture["valheim_version"])
+        self.assertEqual("af6b2fedfcd7a67b834e47c6a4ff00df2979cc0318efb1d12b07df413e9f8473",
+                         hints_fixture["bundle_sha256"])
+        self.assertEqual("Gamepad", hints_fixture["alternative_placing_label"]["direct_child_of"])
+        self.assertFalse(hints_fixture["gamepad_container"]["serialized_active"])
+        self.assertTrue(hints_fixture["keyboard_container"]["serialized_active"])
+        self.assertEqual("m_gamepadHint", hints_fixture["gamepad_container"]["ui_input_hint_field"])
+        self.assertEqual("m_mouseKeyboardHint", hints_fixture["keyboard_container"]["ui_input_hint_field"])
+        self.assertEqual(hints_fixture["gamepad_container"]["layout"], hints_fixture["keyboard_container"]["layout"])
+        self.assertTrue(hints_fixture["alternative_placing_label"]["has_layout_element"])
+        self.assertFalse(hints_fixture["alternative_placing_label"]["layout_element_ignore_layout"])
         contract = (ROOT / "docs" / "ASSEMBLY-CONTRACT.md").read_text()
         self.assertIn("tests/fixtures/path_v2-prefab.json", contract)
+        self.assertIn("tests/fixtures/key-hints-ui.json", contract)
         self.assertIn("passes those exact locals, including the resolved `TerrainOp.Settings`, directly into private `TerrainComp.DoOperation(Vector3, Vector3, TerrainOp.Settings)`", contract)
         self.assertIn("remote terrain owner", contract)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
@@ -355,7 +387,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         gate = (PLUGIN_DIR / "CompatibilityGate.cs").read_text()
         module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
         self.assertIn(f"tests/$identifier.Compatibility.Tests/$identifier.Compatibility.Tests.csproj", build)
-        self.assertIn('"$reference_path/assembly_valheim.dll" "$reference_path/assembly_utils.dll"', build)
+        self.assertIn('"$reference_path/assembly_valheim.dll" "$reference_path/assembly_utils.dll" "$reference_path/assembly_guiutils.dll"', build)
         for marker in (
             "ExpectedSha256", "ExpectedMvid", "PieceTable", "UpdateAvailable", "ZNetScene", "OnDestroy",
             "SetPlaceMode", "GetBuildTool", "UpdateAvailablePiecesList", "HaveRequirements", "UpdatePlacement", "PlacePiece",
@@ -363,7 +395,8 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "RPC_ApplyOperation", "DoOperation", "InternalDoOperation", "ResetGrass", "IsOwner", "Serialize", "Deserialize",
             "UpdateWalking", "CheckRun", "GetRunSpeedFactor", "ModifyRunStaminaDrain", "UseStamina",
             "CurrentGameVersion", "GetPaintMask", "m_character", "KeyHints", "UpdateHints", "IsGamepadActive",
-            "m_buildHints", "m_buildAlternativePlacingKey",
+            "m_buildHints", "m_buildAlternativePlacingKey", "UIInputHint", "m_gamepadHint", "m_mouseKeyboardHint",
+            "UpdateInputHints", "UpdateVisiblityAndLayout", "IsMouseActive", "ExpectedGuiUtilsSha256",
             "m_localPlayer", "m_placementGhost", "m_pieces", "m_craftingStation", "m_resources", "m_resItem", "m_amount",
             "m_paintType", "m_levelRadius", "m_smoothRadius", "m_paintRadius", "GetComponent",
             "m_paintMaskDirt", "m_paintMaskCultivated", "m_paintMaskPaved", "PaintType", "Instantiate",

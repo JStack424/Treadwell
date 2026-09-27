@@ -1,0 +1,51 @@
+{
+  "valheim_version": "1.0.14",
+  "steam_build": "25364309",
+  "assembly_valheim_sha256": "e5af0669755ed3b098f71b4dd0753f8a997761b99bca1e8dac3d5ca4c706a0be",
+  "assembly_guiutils_sha256": "5966a7ca268fb30c8cd625181e9cb26ee0deac0332a2504eaa6c220f66d23939",
+  "bundle": "valheim_server_Data/StreamingAssets/SoftRef/Bundles/d59cfac",
+  "bundle_sha256": "af6b2fedfcd7a67b834e47c6a4ff00df2979cc0318efb1d12b07df413e9f8473",
+  "asset": "Assets/UI/prefabs/IngameGui/IngameGui_HUD.prefab",
+  "build_hints": {
+    "path": "IngameGui_HUD/hudroot/KeyHints/BuildHints",
+    "game_object_path_id": 6756264207208770107,
+    "ui_input_hint_path_id": 8964489159877356091
+  },
+  "alternative_placing_label": {
+    "key_hints_field": "m_buildAlternativePlacingKey",
+    "component_path_id": 2296508263001778747,
+    "game_object_path_id": -3560409651737695685,
+    "path": "IngameGui_HUD/hudroot/KeyHints/BuildHints/Gamepad/Text - AltPlace",
+    "direct_child_of": "Gamepad",
+    "has_layout_element": true,
+    "layout_element_path_id": -1139976625751233989,
+    "layout_element_ignore_layout": false,
+    "layout_element_preferred_width": -1.0,
+    "layout_element_preferred_height": -1.0,
+    "layout_element_priority": 1
+  },
+  "gamepad_container": {
+    "ui_input_hint_field": "m_gamepadHint",
+    "game_object_path_id": 3607990431227472443,
+    "path": "IngameGui_HUD/hudroot/KeyHints/BuildHints/Gamepad",
+    "direct_child_of_build_hints": true,
+    "serialized_active": false,
+    "layout": "UnityEngine.UI.HorizontalLayoutGroup",
+    "layout_component_path_id": 595121475064457787,
+    "spacing": 40.0,
+    "child_control_width": true,
+    "child_control_height": true
+  },
+  "keyboard_container": {
+    "ui_input_hint_field": "m_mouseKeyboardHint",
+    "game_object_path_id": -887903323113297349,
+    "path": "IngameGui_HUD/hudroot/KeyHints/BuildHints/Keyboard",
+    "direct_child_of_build_hints": true,
+    "serialized_active": true,
+    "layout": "UnityEngine.UI.HorizontalLayoutGroup",
+    "layout_component_path_id": -3438705158218749381,
+    "spacing": 36.0,
+    "child_control_width": true,
+    "child_control_height": true
+  }
+}

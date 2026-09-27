@@ -15,12 +15,15 @@ namespace Treadwell.Compatibility.Tests
     {
         private const string ExpectedSha256 = "e5af0669755ed3b098f71b4dd0753f8a997761b99bca1e8dac3d5ca4c706a0be";
         private const string ExpectedUtilsSha256 = "5d26cbdcb430acd41af26fb6efda0b6b291a89f6fb6934c503abb896bd51da40";
+        private const string ExpectedGuiUtilsSha256 = "5966a7ca268fb30c8cd625181e9cb26ee0deac0332a2504eaa6c220f66d23939";
+        private const int ExpectedChecks = 131;
         private static readonly Guid ExpectedMvid = new Guid("a63433e8-968e-407a-918a-9f9fe7e7ba9a");
         private static int _passed;
 
         private static int Main(string[] args)
         {
-            if (args.Length != 2) throw new ArgumentException("Expected paths to assembly_valheim.dll and assembly_utils.dll.");
+            if (args.Length != 3)
+                throw new ArgumentException("Expected paths to assembly_valheim.dll, assembly_utils.dll, and assembly_guiutils.dll.");
             var path = Path.GetFullPath(args[0]);
             Equal(ExpectedSha256, Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant(), "assembly SHA-256");
 
@@ -266,7 +269,44 @@ namespace Treadwell.Compatibility.Tests
                 new[] { "UnityEngine.KeyCode", "System.Boolean" }, MethodAttributes.Public | MethodAttributes.Static);
             utilsContract.Method("ZInput", "IsGamepadActive", "System.Boolean",
                 Array.Empty<string>(), MethodAttributes.Public | MethodAttributes.Static);
-            Console.WriteLine(_passed + "/120 compatibility contract checks passed");
+            utilsContract.Method("ZInput", "IsMouseActive", "System.Boolean",
+                Array.Empty<string>(), MethodAttributes.Public | MethodAttributes.Static);
+
+            var guiUtilsPath = Path.GetFullPath(args[2]);
+            Equal(ExpectedGuiUtilsSha256,
+                Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(guiUtilsPath))).ToLowerInvariant(),
+                "assembly_guiutils SHA-256");
+            using var guiUtilsStream = File.OpenRead(guiUtilsPath);
+            using var guiUtilsPe = new PEReader(guiUtilsStream);
+            var guiContract = new Contract(guiUtilsPe.GetMetadataReader(), guiUtilsPe);
+            guiContract.Method("UIInputHint", "UpdateInputHints", "System.Void", Array.Empty<string>(),
+                MethodAttributes.Private);
+            guiContract.Field("UIInputHint", "m_gamepadHint", "UnityEngine.GameObject", FieldAttributes.Public);
+            guiContract.Field("UIInputHint", "m_mouseKeyboardHint", "UnityEngine.GameObject", FieldAttributes.Public);
+            guiContract.MethodReadsField(
+                "UIInputHint", "UpdateInputHints", "System.Void", Array.Empty<string>(),
+                "UIInputHint", "m_gamepadHint", "UnityEngine.GameObject");
+            guiContract.MethodReadsField(
+                "UIInputHint", "UpdateInputHints", "System.Void", Array.Empty<string>(),
+                "UIInputHint", "m_mouseKeyboardHint", "UnityEngine.GameObject");
+            guiContract.MethodCallCount(
+                "UIInputHint", "UpdateInputHints", "System.Void", Array.Empty<string>(),
+                "UIInputHint", "UpdateVisiblityAndLayout", "System.Void",
+                new[] { "UnityEngine.GameObject", "System.Boolean" }, 3);
+            guiContract.ExternalMethodCallCount(
+                "UIInputHint", "UpdateInputHints", "System.Void", Array.Empty<string>(),
+                "ZInput", "IsGamepadActive", "System.Boolean", Array.Empty<string>(), 3);
+            guiContract.ExternalMethodCallCount(
+                "UIInputHint", "UpdateInputHints", "System.Void", Array.Empty<string>(),
+                "ZInput", "IsMouseActive", "System.Boolean", Array.Empty<string>(), 3);
+            guiContract.ExternalMethodCallCount(
+                "UIInputHint", "UpdateVisiblityAndLayout", "System.Void",
+                new[] { "UnityEngine.GameObject", "System.Boolean" },
+                "UnityEngine.GameObject", "SetActive", "System.Void", new[] { "System.Boolean" }, 1);
+
+            if (_passed != ExpectedChecks)
+                throw new InvalidOperationException("Compatibility check count mismatch: " + _passed + "/" + ExpectedChecks);
+            Console.WriteLine(_passed + "/" + ExpectedChecks + " compatibility contract checks passed");
             return 0;
         }
 

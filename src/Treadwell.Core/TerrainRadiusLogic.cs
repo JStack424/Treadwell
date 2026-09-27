@@ -178,6 +178,27 @@ namespace Treadwell.Core
         }
     }
 
+    public static class TerrainRadiusHintLayoutRouting
+    {
+        public static bool CanAttach(
+            bool branchesAreDistinct,
+            bool gamepadIsDirectChildOfBuildHints,
+            bool keyboardIsDirectChildOfBuildHints,
+            bool sourceIsDirectChildOfGamepad,
+            bool gamepadUsesHorizontalLayout,
+            bool keyboardUsesHorizontalLayout,
+            bool sourceParticipatesInLayout)
+        {
+            return branchesAreDistinct &&
+                   gamepadIsDirectChildOfBuildHints &&
+                   keyboardIsDirectChildOfBuildHints &&
+                   sourceIsDirectChildOfGamepad &&
+                   gamepadUsesHorizontalLayout &&
+                   keyboardUsesHorizontalLayout &&
+                   sourceParticipatesInLayout;
+        }
+    }
+
     public static class TerrainRadiusControlHintRouting
     {
         public static bool ShouldShow(
