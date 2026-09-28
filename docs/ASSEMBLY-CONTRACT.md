@@ -39,7 +39,7 @@ That lifecycle explains the live failures in 0.2.1 and 0.2.2. Mutating only the 
 
 Separate Harmony finalizers restore the final operation settings and selected prefab after their respective calls return or throw. Restoration never overwrites a field that another runtime participant changed during the call, and the original exception is preserved. Paved Road's 2.2:3 paint-to-smooth ratio is maintained and disabled channels are untouched. Executable regressions cover the precise 0.2.2 failure shape, larger and smaller Level Ground values, already-adjusted settings, the shared Pathen path, Paved Road ratio preservation, Raise Ground exclusion, altered/modded radii, wrong paint types, and conflict-safe rollback. Tool/action changes, hidden placement input, scene destruction, plugin disable, and input exceptions restore visual scale or clear transient ownership.
 
-This boundary can correct the local terrain owner only. Because the terrain RPC serializes operation identity rather than custom radius values, an unmodded remote terrain owner resolves its own vanilla settings and never creates Treadwell's thread-local placement scope. Multiplayer/remote-owner propagation therefore remains explicitly unverified and is not claimed by this test build.
+This boundary can correct the local terrain owner only. Because the terrain RPC serializes operation identity rather than custom radius values, an unmodded remote terrain owner resolves its own vanilla settings and never creates Treadwell's thread-local placement scope. Multiplayer/remote-owner custom-radius behavior therefore remains explicitly unverified in 1.0.0.
 
 ## Terrain
 

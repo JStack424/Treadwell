@@ -1,12 +1,18 @@
 # Changelog
 
+## 1.0.0
+
+- Promoted the live-approved 0.2.5 behavior to the first stable production release.
+- Preserved the live-approved 0.2.3 adjustable Level Ground, Pathen, and Paved Road terrain radii and the 0.2.5 active Keyboard-row **Alt + Scroll — Change Size** hint exactly.
+- Added no gameplay or UI features; multiplayer/remote-owner custom-radius behavior remains explicitly unverified.
+
 ## 0.2.5
 
 - Fixed the brush-size hint after live testing confirmed that 0.2.4's clone never appeared. Pinned Valheim 1.0.14 prefab evidence proves `m_buildAlternativePlacingKey` is specifically `BuildHints/Gamepad/Text - AltPlace`, not a generic keyboard placement label.
 - Corrected the impossible 0.2.4 visibility path: keyboard mode could satisfy Treadwell's eligibility, but the clone's Gamepad ancestor was inactive; gamepad mode could activate that ancestor, but Treadwell intentionally hid the keyboard-only hint.
 - Restored the isolated owned-clone design and now validates the direct sibling Gamepad/Keyboard containers, their horizontal layouts, the source label's Gamepad parent and `LayoutElement`, then attaches **Alt + Scroll — Change Size** as the final child of the Keyboard layout. Valheim's source label remains unchanged.
 - Kept the hint read-only with respect to terrain gameplay: it consumes the existing validated brush-binding snapshot and never refreshes discovery or calls radius revalidation from the HUD postfix. Changed/missing UI hierarchy quarantines only the optional hint; gameplay remains active.
-- Added a committed hash-pinned HUD fixture plus compatibility, routing, hierarchy, ownership, duplicate-cleanup, and gameplay-isolation regression checks. This remains a local test candidate pending visual confirmation.
+- Added a committed hash-pinned HUD fixture plus compatibility, routing, hierarchy, ownership, duplicate-cleanup, and gameplay-isolation regression checks. The hint was subsequently live-confirmed in the active Keyboard row, and 1.0.0 promotes this exact behavior.
 
 ## 0.2.4
 
