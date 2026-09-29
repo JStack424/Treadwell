@@ -5,11 +5,11 @@
     <ModDisplayName>Treadwell</ModDisplayName>
     <ModAuthor>JStack424</ModAuthor>
     <ModGuid>com.jstack424.treadwell</ModGuid>
-    <ModVersion>1.0.0</ModVersion>
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <ModVersion>1.0.1</ModVersion>
+    <Version>1.0.1</Version>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <FileVersion>1.0.1.0</FileVersion>
+    <InformationalVersion>1.0.1</InformationalVersion>
     <Authors>JStack424</Authors>
     <RepositoryUrl>https://github.com/JStack424/Treadwell</RepositoryUrl>
   </PropertyGroup>
