@@ -84,7 +84,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         ):
             self.assertIn(marker, gate)
         for patch in (
-            "PlayerSetPlaceModePrefix", "PieceTableUpdateAvailablePrefix", "PlayerHaveRequirementsPrefix",
+            "PlayerSetPlaceModePrefix", "PieceTableUpdateAvailablePrefix",
             "PlayerUpdatePlacementPrefix", "PlayerPlacePiecePrefix", "PlayerPlacePieceFinalizer",
             "TerrainCompDoOperationPrefix", "TerrainCompDoOperationFinalizer",
             "GameCameraUpdateCameraPrefix", "GameCameraUpdateCameraFinalizer", "ZInputGetMouseScrollWheelPrefix", "KeyHintsUpdateHintsPostfix", "ZNetSceneOnDestroyPrefix", "GetRunSpeedFactorPostfix",
@@ -148,12 +148,9 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("failed install executes every rollback step", core_tests)
         self.assertIn("runtime method shape mismatch is rejected", core_tests)
         self.assertIn("ambiguous runtime field contract is rejected", core_tests)
-        self.assertIn("restore failure retains captured state until a successful retry", core_tests)
         self.assertIn("_cleanupPending", module)
         self.assertIn("if (!_active && !_cleanupPending) return", module)
         self.assertIn("OnDisable/OnDestroy can retry", plugin)
-        self.assertIn("SettingChanged -= OnPavedRoadSettingChanged;\n                    _pavedSettingSubscribed = false", module)
-        self.assertIn("if (!ReferenceEquals(_activeModule, this)) return", module)
         self.assertIn("Harmony construction is deliberately deferred", module)
         self.assertNotIn("private static readonly MethodInfo GetLastGroundColliderMethod", module)
         self.assertIn("foreach (var module in _modules.Reverse())", host)
@@ -168,15 +165,17 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn("_harmony?.UnpatchSelf()", module)
         self.assertIn("foreach (var module in _modules.Reverse())", host)
 
-    def test_feature_scope_and_exact_six_settings(self):
+    def test_feature_scope_removes_stonecutter_bypass_and_keeps_exact_five_settings(self):
         plugin = (PLUGIN_DIR / "Plugin.cs").read_text()
         module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
         core = (ROOT / "src" / f"{IDENTIFIER}.Core" / "RoadLogic.cs").read_text()
-        station_override = (ROOT / "src" / f"{IDENTIFIER}.Core" / "PavedRoadStationOverride.cs").read_text()
-        self.assertEqual(6, plugin.count("Config.Bind("))
+        readme = (ROOT / "README.md").read_text()
+        package_readme = (ROOT / "packages" / IDENTIFIER / "README.md").read_text()
+        current_surfaces = "\n".join((plugin, module, readme, package_readme, (ROOT / "mod.json").read_text()))
+
+        self.assertEqual(5, plugin.count("Config.Bind("))
         for marker in (
             '"Enable mod", true',
-            '"Paved roads without stonecutter", true',
             '"Dirt sprint speed bonus (%)", 10f',
             '"Dirt sprint stamina reduction (%)", 10f',
             '"Paved sprint speed bonus (%)", 20f',
@@ -184,62 +183,39 @@ class RepositoryInfrastructureTests(unittest.TestCase):
             "AcceptableValueRange<float>(0f, 100f)",
         ):
             self.assertIn(marker, plugin)
-        self.assertIn('typeof(PieceTable), "UpdateAvailable"', module)
-        self.assertIn("PieceTableUpdateAvailablePrefix", module)
-        self.assertNotIn("PieceTableUpdateAvailablePostfix", module)
-        self.assertIn("RefreshPlayerAvailablePieces", module)
-        self.assertIn('typeof(Player), "SetPlaceMode"', module)
-        self.assertIn("PlayerSetPlaceModePrefix", module)
-        self.assertIn('typeof(Player), "GetBuildTool"', module)
-        self.assertIn('typeof(Player), "UpdateAvailablePiecesList"', module)
-        self.assertIn('typeof(Player), "HaveRequirements"', module)
-        self.assertIn("PlayerHaveRequirementsPrefix", module)
-        self.assertIn('typeof(ZNetScene), "OnDestroy"', module)
-        self.assertIn("ZNetSceneOnDestroyPrefix", module)
-        self.assertNotIn('typeof(Player), "GetBuildPieces"', module)
-        self.assertIn('typeof(PieceTable), "m_pieces"', module)
-        self.assertIn("piece.m_craftingStation = station", module)
-        self.assertIn("_setStation(piece, null)", station_override)
-        self.assertIn("_setStation(piece, originalStation)", station_override)
-        self.assertIn("GetComponent<Piece>()", module)
-        self.assertIn("GetComponentsInChildren<Piece>(true)", module)
-        self.assertIn("GetComponentsInChildren<TerrainModifier>(true)", module)
-        self.assertIn("PavedRoadCandidateSelector.Select", module)
-        self.assertIn("HasRootPiece", station_override)
-        self.assertIn("PavedTerrainOperationCount == 1", station_override)
-        self.assertIn("ResourceRequirementCount == 1", station_override)
-        self.assertIn("SingleUnitResourceRequirementCount == 1", station_override)
-        self.assertIn("SingleUnitStoneResourceRequirementCount == 1", station_override)
-        combined = module + station_override
-        for removed in ("HaveRequirementsTranspiler", "AdjustStationSatisfied", "ResolveStationSatisfied", "ShouldIgnoreStationRange", "HaveBuildStationInRange"):
-            self.assertNotIn(removed, combined)
-        self.assertIn('typeof(Player), "GetRunSpeedFactor"', module)
-        self.assertIn('typeof(SEMan), "ModifyRunStaminaDrain"', module)
-        self.assertIn("__result *=", module)
-        self.assertIn("drain *=", module)
-        self.assertIn("player != Player.m_localPlayer", module)
-        self.assertIn("player.IsOnGround()", module)
-        self.assertIn("GetLastGroundCollider", module)
-        self.assertIn("GetComponentInParent<Heightmap>", module)
+
+        self.assertFalse((ROOT / "src" / f"{IDENTIFIER}.Core" / "PavedRoadStationOverride.cs").exists())
+        for removed in (
+            "Paved roads without stonecutter", "PavedRoadStationOverride", "PavedRoadCandidate",
+            "PlayerHaveRequirementsPrefix", "OnPavedRoadSettingChanged", "RefreshPavedRoadStation",
+            "RefreshPlayerAvailablePieces", "UpdateAvailablePiecesList", "HaveRequirements",
+            "StationOverrideApplyResult", "StationOverrideRestoreResult",
+        ):
+            self.assertNotIn(removed, current_surfaces)
+        self.assertNotRegex(module, r"m_craftingStation\s*=")
+
+        for preserved in (
+            'typeof(PieceTable), "UpdateAvailable"', "PieceTableUpdateAvailablePrefix",
+            'typeof(Player), "SetPlaceMode"', "PlayerSetPlaceModePrefix",
+            'typeof(ZNetScene), "OnDestroy"', "ZNetSceneOnDestroyPrefix",
+            'typeof(PieceTable), "m_pieces"', 'typeof(Piece), "m_craftingStation"',
+            'typeof(Piece), "m_resources"', 'typeof(Piece.Requirement), "m_resItem"',
+            'typeof(Piece.Requirement), "m_amount"', "GetComponent<Piece>()",
+            "GetComponentsInChildren<Piece>(true)", "GetComponentsInChildren<TerrainOp>(true)",
+            'typeof(Player), "GetRunSpeedFactor"', 'typeof(SEMan), "ModifyRunStaminaDrain"',
+            "__result *=", "drain *=", "player != Player.m_localPlayer", "player.IsOnGround()",
+            "GetLastGroundCollider", "GetComponentInParent<Heightmap>", "NaturalGapHoldSeconds = 0.18d",
+            'string.Equals(name, "Stone", StringComparison.Ordinal)',
+            'string.Equals(name, "Stone(Clone)", StringComparison.Ordinal)',
+        ):
+            self.assertIn(preserved, module)
         self.assertIn("TerrainSurface.Cultivated", core)
         self.assertIn("TerrainSurface.NonTerrain", core)
-        self.assertIn("NaturalGapHoldSeconds = 0.18d", module)
-        self.assertIn('string.Equals(name, "Stone", StringComparison.Ordinal)', module)
-        self.assertIn('string.Equals(name, "Stone(Clone)", StringComparison.Ordinal)', module)
-        for removed_identity_gate in (
-            "VanillaPrefabName", "VanillaDisplayName", "RuntimeCloneSuffix", "IsExactPavedRoad",
-            "VanillaStationPrefabName", "VanillaStationDisplayName", "IsExactStonecutter",
-            "_stationPrefabName", "_stationDisplayName",
-        ):
-            self.assertNotIn(removed_identity_gate, station_override + module)
-        for diagnostic in (
-            "Semantic Paved Road candidate found",
-            "station field removed",
-            "Paved Road semantic discovery was",
-            "Candidate shapes",
-        ):
-            self.assertIn(diagnostic, module)
+        self.assertNotIn('typeof(Player), "GetBuildPieces"', module)
         self.assertNotRegex(module, r"MessageHud|Hud\.instance|ShowMessage|StatusEffect")
+        self.assertIn("exactly five settings", readme)
+        self.assertIn("Vanilla's Stonecutter requirement is unchanged", readme)
+        self.assertEqual(readme, package_readme)
 
     def test_radius_controls_are_narrow_synchronized_and_transactional(self):
         module = (PLUGIN_DIR / "FeatureModule.cs").read_text()
@@ -390,7 +366,7 @@ class RepositoryInfrastructureTests(unittest.TestCase):
         self.assertIn('"$reference_path/assembly_valheim.dll" "$reference_path/assembly_utils.dll" "$reference_path/assembly_guiutils.dll"', build)
         for marker in (
             "ExpectedSha256", "ExpectedMvid", "PieceTable", "UpdateAvailable", "ZNetScene", "OnDestroy",
-            "SetPlaceMode", "GetBuildTool", "UpdateAvailablePiecesList", "HaveRequirements", "UpdatePlacement", "PlacePiece",
+            "SetPlaceMode", "GetBuildTool", "UpdatePlacement", "PlacePiece",
             "InPlaceMode", "IsDead", "GetSelectedPiece", "GetRadius", "TryGetTerrainOp",
             "RPC_ApplyOperation", "DoOperation", "InternalDoOperation", "ResetGrass", "IsOwner", "Serialize", "Deserialize",
             "UpdateWalking", "CheckRun", "GetRunSpeedFactor", "ModifyRunStaminaDrain", "UseStamina",

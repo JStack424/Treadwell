@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Text;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
@@ -107,15 +106,11 @@ namespace Treadwell
         [ThreadStatic] private static Stack<RadiusPlacement> _activeRadiusPlacements;
 
         private static MethodInfo GetLastGroundColliderMethod;
-        private static MethodInfo UpdateAvailablePiecesListMethod;
-
-        private readonly ConfigEntry<bool> _pavedRoadWithoutStonecutter;
         private readonly ConfigEntry<float> _dirtSpeed;
         private readonly ConfigEntry<float> _dirtStamina;
         private readonly ConfigEntry<float> _pavedSpeed;
         private readonly ConfigEntry<float> _pavedStamina;
         private readonly RoadSurfaceTracker _surfaceTracker = new RoadSurfaceTracker(NaturalGapHoldSeconds);
-        private readonly PavedRoadStationOverride<Piece, CraftingStation> _stationOverride;
         private readonly TerrainRadiusControlHint _radiusControlHint = new TerrainRadiusControlHint();
         private Harmony _radiusControlHintHarmony;
         private readonly Dictionary<Piece, TerrainBrushBinding> _terrainBrushes = new Dictionary<Piece, TerrainBrushBinding>();
@@ -132,17 +127,10 @@ namespace Treadwell
         private GameObject _scaledPlacementGhost;
         private readonly List<ScaledIndicatorTransform> _scaledIndicatorTransforms = new List<ScaledIndicatorTransform>();
         private static int _suppressCameraMouseWheelDepth;
-        private PieceTable _lastPieceTable;
-        private bool _pavedSettingSubscribed;
-        private bool _loggedStationRemoved;
-        private bool _loggedStationAlreadyAbsent;
-        private bool _loggedDiscoveryFailure;
-        private bool _loggedStationConflict;
         private bool _loggedRadiusDiscoveryFailure;
 
         internal RoadFeatureModule(
             ConfigEntry<bool> enabled,
-            ConfigEntry<bool> pavedRoadWithoutStonecutter,
             ConfigEntry<float> dirtSpeed,
             ConfigEntry<float> dirtStamina,
             ConfigEntry<float> pavedSpeed,
@@ -150,14 +138,10 @@ namespace Treadwell
             ManualLogSource log)
             : base("roads", enabled, log)
         {
-            _pavedRoadWithoutStonecutter = pavedRoadWithoutStonecutter ?? throw new ArgumentNullException(nameof(pavedRoadWithoutStonecutter));
             _dirtSpeed = dirtSpeed ?? throw new ArgumentNullException(nameof(dirtSpeed));
             _dirtStamina = dirtStamina ?? throw new ArgumentNullException(nameof(dirtStamina));
             _pavedSpeed = pavedSpeed ?? throw new ArgumentNullException(nameof(pavedSpeed));
             _pavedStamina = pavedStamina ?? throw new ArgumentNullException(nameof(pavedStamina));
-            _stationOverride = new PavedRoadStationOverride<Piece, CraftingStation>(
-                piece => piece.m_craftingStation,
-                (piece, station) => piece.m_craftingStation = station);
         }
 
         public override void ValidateCompatibility(ICollection<string> failures)
@@ -176,12 +160,6 @@ namespace Treadwell
             CompatibilityGate.RequireMethod(failures, typeof(Player), "GetBuildTool", typeof(PieceTable),
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly, Type.EmptyTypes,
                 method => !method.IsStatic);
-            CompatibilityGate.RequireMethod(failures, typeof(Player), "UpdateAvailablePiecesList", typeof(void),
-                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly, Type.EmptyTypes,
-                method => !method.IsStatic);
-            CompatibilityGate.RequireMethod(failures, typeof(Player), "HaveRequirements", typeof(bool),
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
-                new[] { typeof(Piece), typeof(Player.RequirementMode) }, method => !method.IsStatic);
             CompatibilityGate.RequireMethod(failures, typeof(Player), "UpdatePlacement", typeof(void),
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
                 new[] { typeof(bool), typeof(float) }, method => !method.IsStatic);
@@ -274,8 +252,6 @@ namespace Treadwell
                 new[] { typeof(PieceTable) });
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PieceTableUpdateAvailablePrefix),
                 new[] { typeof(PieceTable) });
-            CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerHaveRequirementsPrefix),
-                new[] { typeof(Piece) });
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerUpdatePlacementPrefix),
                 new[] { typeof(Player), typeof(bool), typeof(GameObject) });
             CompatibilityGate.RequirePatchMethod(failures, typeof(RoadFeatureModule), nameof(PlayerPlacePiecePrefix),
@@ -385,9 +361,6 @@ namespace Treadwell
             GetLastGroundColliderMethod = AccessTools.DeclaredMethod(
                 typeof(Character), "GetLastGroundCollider", Type.EmptyTypes)
                 ?? throw new MissingMethodException(typeof(Character).FullName, "GetLastGroundCollider");
-            UpdateAvailablePiecesListMethod = AccessTools.DeclaredMethod(
-                typeof(Player), "UpdateAvailablePiecesList", Type.EmptyTypes)
-                ?? throw new MissingMethodException(typeof(Player).FullName, "UpdateAvailablePiecesList");
             _activeModule = this;
             Harmony.Patch(
                 AccessTools.DeclaredMethod(typeof(Player), "SetPlaceMode", new[] { typeof(PieceTable) }),
@@ -396,10 +369,6 @@ namespace Treadwell
                 AccessTools.DeclaredMethod(typeof(PieceTable), "UpdateAvailable",
                     new[] { typeof(HashSet<string>), typeof(Player), typeof(bool), typeof(bool) }),
                 prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PieceTableUpdateAvailablePrefix)));
-            Harmony.Patch(
-                AccessTools.DeclaredMethod(typeof(Player), "HaveRequirements",
-                    new[] { typeof(Piece), typeof(Player.RequirementMode) }),
-                prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerHaveRequirementsPrefix)));
             Harmony.Patch(
                 AccessTools.DeclaredMethod(typeof(Player), "UpdatePlacement", new[] { typeof(bool), typeof(float) }),
                 prefix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(PlayerUpdatePlacementPrefix)));
@@ -431,10 +400,6 @@ namespace Treadwell
                     new[] { typeof(float), typeof(float).MakeByRefType(), typeof(Vector3), typeof(bool) }),
                 postfix: new HarmonyMethod(typeof(RoadFeatureModule), nameof(ModifyRunStaminaDrainPostfix)));
 
-            _pavedRoadWithoutStonecutter.SettingChanged += OnPavedRoadSettingChanged;
-            _pavedSettingSubscribed = true;
-            RefreshCurrentBuildPieces();
-            RefreshPlayerAvailablePieces();
             try { TryInstallTerrainRadiusControlHint(); }
             catch (Exception exception)
             {
@@ -446,18 +411,6 @@ namespace Treadwell
         protected override void OnDisabled()
         {
             var failures = new List<Exception>();
-            if (_pavedSettingSubscribed)
-            {
-                try
-                {
-                    _pavedRoadWithoutStonecutter.SettingChanged -= OnPavedRoadSettingChanged;
-                    _pavedSettingSubscribed = false;
-                }
-                catch (Exception exception) { failures.Add(exception); }
-            }
-
-            try { RestorePavedRoadStation(); }
-            catch (Exception exception) { failures.Add(exception); }
             try { ResetTerrainRadiusRuntime(); }
             catch (Exception exception) { failures.Add(exception); }
             if (_radiusControlHintHarmony != null)
@@ -472,19 +425,11 @@ namespace Treadwell
             try { _radiusControlHint.Detach(); }
             catch (Exception exception) { failures.Add(exception); }
 
-            // Clear every gameplay entrypoint before best-effort UI refresh/logging.
-            _lastPieceTable = null;
+            // Clear every gameplay entrypoint before completing cleanup.
             if (ReferenceEquals(_activeModule, this)) _activeModule = null;
             _surfaceTracker.Reset();
 
-            try { RefreshPlayerAvailablePieces(); }
-            catch (Exception exception)
-            {
-                try { Log.LogWarning("Could not refresh vanilla build-piece availability during cleanup: " + exception); }
-                catch { }
-            }
             GetLastGroundColliderMethod = null;
-            UpdateAvailablePiecesListMethod = null;
 
             if (failures.Count != 0)
                 throw new AggregateException("Road feature cleanup was incomplete.", failures);
@@ -574,7 +519,6 @@ namespace Treadwell
             var module = _activeModule;
             if (module == null) return;
             module.RefreshTerrainRadiusBrushes(__0);
-            module.RefreshPavedRoadStation(__0, reportMissingCandidate: true);
         }
 
         private static void PieceTableUpdateAvailablePrefix(PieceTable __instance)
@@ -584,13 +528,6 @@ namespace Treadwell
             var player = Player.m_localPlayer;
             if (player != null && ReferenceEquals(player.GetBuildTool(), __instance))
                 module.RefreshTerrainRadiusBrushes(__instance);
-            module.RefreshPavedRoadStation(__instance, reportMissingCandidate: false);
-        }
-
-        private static void PlayerHaveRequirementsPrefix(Piece __0)
-        {
-            // Re-discover from the active tool table rather than trusting an arbitrary Piece argument.
-            _activeModule?.RefreshCurrentBuildPieces();
         }
 
         private static void PlayerUpdatePlacementPrefix(Player __instance, bool __0, GameObject ___m_placementGhost)
@@ -765,7 +702,6 @@ namespace Treadwell
         {
             var module = _activeModule;
             if (module == null) return;
-            module.RestorePavedRoadStation();
             module.ResetTerrainRadiusRuntime();
             try { module._radiusControlHint.Detach(); }
             catch (Exception exception)
@@ -773,7 +709,6 @@ namespace Treadwell
                 try { module.Log.LogWarning("Terrain-radius control hint cleanup failed during scene destruction: " + exception); }
                 catch { }
             }
-            module._lastPieceTable = null;
         }
 
         private void RefreshTerrainRadiusBrushes(PieceTable table)
@@ -1042,110 +977,6 @@ namespace Treadwell
         private static bool Approximately(Vector3 left, Vector3 right)
             => Approximately(left.x, right.x) && Approximately(left.y, right.y) && Approximately(left.z, right.z);
 
-        private void OnPavedRoadSettingChanged(object sender, EventArgs eventArgs)
-        {
-            if (!ReferenceEquals(_activeModule, this)) return;
-            try
-            {
-                if (_pavedRoadWithoutStonecutter.Value) RefreshCurrentBuildPieces();
-                else RestorePavedRoadStation();
-                RefreshPlayerAvailablePieces();
-            }
-            catch (Exception exception)
-            {
-                RestorePavedRoadStation();
-                Log.LogError("Paved Road recipe update failed; the vanilla station requirement was restored: " + exception);
-            }
-        }
-
-        private void RefreshCurrentBuildPieces()
-        {
-            if (!_pavedRoadWithoutStonecutter.Value)
-            {
-                RestorePavedRoadStation();
-                return;
-            }
-
-            var player = Player.m_localPlayer;
-            var activeTable = player != null ? player.GetBuildTool() : null;
-            if (activeTable != null)
-            {
-                RefreshPavedRoadStation(activeTable, reportMissingCandidate: true);
-                return;
-            }
-
-            if (_lastPieceTable != null)
-                RefreshPavedRoadStation(_lastPieceTable, reportMissingCandidate: false);
-        }
-
-        private static void RefreshPlayerAvailablePieces()
-        {
-            var player = Player.m_localPlayer;
-            if (player != null) UpdateAvailablePiecesListMethod.Invoke(player, null);
-        }
-
-        private void RefreshPavedRoadStation(PieceTable table, bool reportMissingCandidate)
-        {
-            if (table == null) return;
-            if (!_pavedRoadWithoutStonecutter.Value)
-            {
-                RestorePavedRoadStation();
-                return;
-            }
-
-            var entries = InspectPieceTable(table);
-            var shapes = new List<PavedRoadCandidateShape>(entries.Count);
-            foreach (var entry in entries) shapes.Add(entry.Shape);
-            var selection = PavedRoadCandidateSelector.Select(shapes);
-            if (selection.Outcome != PavedRoadDiscoveryOutcome.Unique)
-            {
-                RestorePavedRoadStation();
-                if (ReferenceEquals(_lastPieceTable, table)) _lastPieceTable = null;
-                if (reportMissingCandidate && ShouldReportDiscoveryFailure(table, entries))
-                    LogDiscoveryFailureOnce(table, selection, entries);
-                return;
-            }
-
-            var selected = entries[selection.CandidateIndex];
-            _lastPieceTable = table;
-            ApplyPavedRoadStationOverride(selected.Piece, selected.Describe());
-        }
-
-        private void ApplyPavedRoadStationOverride(Piece piece, string candidateDescription)
-        {
-            if (!_pavedRoadWithoutStonecutter.Value || piece == null) return;
-
-            var result = _stationOverride.Apply(piece);
-            switch (result)
-            {
-                case StationOverrideApplyResult.Removed:
-                    if (!_loggedStationRemoved)
-                    {
-                        _loggedStationRemoved = true;
-                        Log.LogInfo("Semantic Paved Road candidate found " + candidateDescription +
-                                    "; station field removed, so no nearby stonecutter is required.");
-                    }
-                    break;
-                case StationOverrideApplyResult.AlreadyAbsent:
-                    if (!_loggedStationAlreadyAbsent)
-                    {
-                        _loggedStationAlreadyAbsent = true;
-                        Log.LogInfo("Semantic Paved Road candidate found " + candidateDescription +
-                                    "; its station field was already absent, so no change was needed.");
-                    }
-                    break;
-                case StationOverrideApplyResult.Conflict:
-                    if (!_loggedStationConflict)
-                    {
-                        _loggedStationConflict = true;
-                        Log.LogWarning("Paved Road station field changed while Treadwell was active; the conflicting value was left untouched.");
-                    }
-                    break;
-                case StationOverrideApplyResult.InvalidPiece:
-                    throw new InvalidOperationException("Semantic Paved Road discovery returned an invalid piece.");
-            }
-        }
-
         private List<PieceTableEntryInspection> InspectPieceTable(PieceTable table)
         {
             var entries = new List<PieceTableEntryInspection>();
@@ -1177,8 +1008,7 @@ namespace Treadwell
                     }
                 }
 
-                var hasStationRequirement = piece != null &&
-                    (piece.m_craftingStation != null || _stationOverride.IsAppliedTo(piece));
+                var hasStationRequirement = piece != null && piece.m_craftingStation != null;
                 var brushShape = new TerrainBrushShape(
                     pieces.Length,
                     piece != null,
@@ -1198,31 +1028,7 @@ namespace Treadwell
                     singleUnitResourceCount,
                     singleUnitStoneResourceCount);
 
-                var pavedOperationCount = 0;
-                foreach (var modifier in modifiers)
-                {
-                    if (modifier != null && modifier.m_paintType == TerrainModifier.PaintType.Paved)
-                        pavedOperationCount++;
-                }
-                foreach (var operation in terrainOps)
-                {
-                    if (operation != null && operation.m_settings != null && operation.m_settings.m_paintCleared &&
-                        operation.m_settings.m_paintType == TerrainModifier.PaintType.Paved)
-                        pavedOperationCount++;
-                }
-                // PavedRoadCandidateShape predates Valheim's TerrainOp migration; its
-                // terrain count now deliberately represents both supported operation types.
-                var stationTerrainCount = modifiers.Length + terrainOps.Length;
-                var shape = new PavedRoadCandidateShape(
-                    pieces.Length,
-                    piece != null,
-                    stationTerrainCount,
-                    pavedOperationCount,
-                    hasStationRequirement,
-                    resourceCount,
-                    singleUnitResourceCount,
-                    singleUnitStoneResourceCount);
-                entries.Add(new PieceTableEntryInspection(pieceObject, pieces, modifiers, terrainOps, shape, brushShape));
+                entries.Add(new PieceTableEntryInspection(piece, terrainOps, brushShape));
             }
             return entries;
         }
@@ -1235,51 +1041,11 @@ namespace Treadwell
                    string.Equals(name, "Stone(Clone)", StringComparison.Ordinal);
         }
 
-        private static bool ShouldReportDiscoveryFailure(PieceTable table, List<PieceTableEntryInspection> entries)
-        {
-            if (IsLikelyHoePieceTable(table)) return true;
-            foreach (var entry in entries)
-            {
-                if (entry.Shape.PavedTerrainOperationCount > 0) return true;
-            }
-            return false;
-        }
-
         private static bool IsLikelyHoePieceTable(PieceTable table)
         {
             var name = table != null && table.gameObject != null ? table.gameObject.name : null;
             return string.Equals(name, "_HoePieceTable", StringComparison.Ordinal) ||
                    string.Equals(name, "_HoePieceTable(Clone)", StringComparison.Ordinal);
-        }
-
-        private void LogDiscoveryFailureOnce(
-            PieceTable table,
-            PavedRoadCandidateSelection selection,
-            List<PieceTableEntryInspection> entries)
-        {
-            if (_loggedDiscoveryFailure) return;
-            _loggedDiscoveryFailure = true;
-            var outcome = selection.Outcome == PavedRoadDiscoveryOutcome.Ambiguous
-                ? "ambiguous (" + selection.CandidateCount + " semantic matches)"
-                : "no semantic match";
-            var tableName = table != null && table.gameObject != null ? SanitizeDiagnostic(table.gameObject.name) : "<unnamed>";
-            var text = new StringBuilder();
-            var shown = Math.Min(entries.Count, 12);
-            for (var index = 0; index < shown; index++)
-            {
-                if (index > 0) text.Append("; ");
-                text.Append(entries[index].Describe());
-            }
-            if (entries.Count > shown) text.Append("; +").Append(entries.Count - shown).Append(" more");
-            Log.LogWarning("Paved Road semantic discovery was " + outcome + " in active table '" + tableName +
-                           "'; vanilla station requirements remain unchanged. Candidate shapes: " + text);
-        }
-
-        private static string SanitizeDiagnostic(string value)
-        {
-            if (string.IsNullOrEmpty(value)) return "<none>";
-            var safe = value.Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
-            return safe.Length <= 64 ? safe : safe.Substring(0, 64) + "...";
         }
 
         private sealed class ScaledIndicatorTransform
@@ -1466,108 +1232,18 @@ namespace Treadwell
         private sealed class PieceTableEntryInspection
         {
             internal PieceTableEntryInspection(
-                GameObject root,
-                Piece[] pieces,
-                TerrainModifier[] modifiers,
+                Piece piece,
                 TerrainOp[] terrainOps,
-                PavedRoadCandidateShape shape,
                 TerrainBrushShape brushShape)
             {
-                Root = root;
-                Pieces = pieces;
-                Modifiers = modifiers;
+                Piece = piece;
                 TerrainOps = terrainOps;
-                Shape = shape;
                 BrushShape = brushShape;
             }
 
-            internal GameObject Root { get; }
-            internal Piece[] Pieces { get; }
-            internal TerrainModifier[] Modifiers { get; }
+            internal Piece Piece { get; }
             internal TerrainOp[] TerrainOps { get; }
-            internal PavedRoadCandidateShape Shape { get; }
             internal TerrainBrushShape BrushShape { get; }
-            internal Piece Piece => Pieces.Length == 1 ? Pieces[0] : null;
-
-            internal string Describe()
-            {
-                var piece = Piece;
-                var text = new StringBuilder("[root='");
-                text.Append(SanitizeDiagnostic(Root != null ? Root.name : null));
-                text.Append("', pieces=").Append(Pieces.Length);
-                text.Append(", piece='").Append(SanitizeDiagnostic(piece != null ? piece.m_name : null)).Append("'");
-                text.Append(", station='");
-                text.Append(SanitizeDiagnostic(piece != null && piece.m_craftingStation != null && piece.m_craftingStation.gameObject != null
-                    ? piece.m_craftingStation.gameObject.name
-                    : null));
-                text.Append("', terrain=");
-                AppendTerrainSummary(text, Modifiers, TerrainOps);
-                text.Append(", resources=");
-                AppendResourceSummary(text, piece != null ? piece.m_resources : null);
-                text.Append(']');
-                return text.ToString();
-            }
-
-            private static void AppendTerrainSummary(
-                StringBuilder text,
-                TerrainModifier[] modifiers,
-                TerrainOp[] terrainOps)
-            {
-                text.Append('[');
-                var written = 0;
-                foreach (var modifier in modifiers)
-                {
-                    if (written >= 4) break;
-                    if (written++ > 0) text.Append(',');
-                    text.Append("modifier:").Append(modifier != null ? modifier.m_paintType.ToString() : "<null>");
-                }
-                foreach (var operation in terrainOps)
-                {
-                    if (written >= 4) break;
-                    if (written++ > 0) text.Append(',');
-                    text.Append("op:").Append(operation != null && operation.m_settings != null
-                        ? operation.m_settings.m_paintType.ToString()
-                        : "<null>");
-                }
-                var remaining = modifiers.Length + terrainOps.Length - written;
-                if (remaining > 0) text.Append(",+").Append(remaining);
-                text.Append(']');
-            }
-
-            private static void AppendResourceSummary(StringBuilder text, Piece.Requirement[] requirements)
-            {
-                text.Append('[');
-                if (requirements != null)
-                {
-                    var shown = Math.Min(requirements.Length, 4);
-                    for (var index = 0; index < shown; index++)
-                    {
-                        if (index > 0) text.Append(',');
-                        var requirement = requirements[index];
-                        var itemName = requirement != null && requirement.m_resItem != null && requirement.m_resItem.gameObject != null
-                            ? requirement.m_resItem.gameObject.name
-                            : null;
-                        text.Append(SanitizeDiagnostic(itemName)).Append(':')
-                            .Append(requirement != null ? requirement.m_amount : 0);
-                    }
-                    if (requirements.Length > shown) text.Append(",+").Append(requirements.Length - shown);
-                }
-                text.Append(']');
-            }
-        }
-
-        private void RestorePavedRoadStation()
-        {
-            if (!_stationOverride.IsApplied) return;
-            try
-            {
-                if (_stationOverride.Restore() == StationOverrideRestoreResult.Conflict)
-                    Log.LogWarning("Did not restore the Paved Road station because another runtime change replaced it.");
-            }
-            catch (MissingReferenceException)
-            {
-                _stationOverride.Forget();
-            }
         }
 
         private static void GetRunSpeedFactorPostfix(Player __instance, ref float __result)

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+- Removed the Stonecutter-free Paved Road setting and all associated runtime station-discovery, override, requirement-check, availability-refresh, and restoration code to eliminate the reported inventory-change performance regression.
+- Restored vanilla Stonecutter requirements for Paved Road placement.
+- Preserved the live-approved adjustable Level Ground, Pathen, and Paved Road radii, active Keyboard-row **Alt + Scroll — Change Size** hint, camera-wheel isolation, and dirt/paved sprint bonuses.
+- This exact package still requires live verification; the performance regression is not claimed fixed until that test passes.
+
 ## 1.0.0
 
 - Promoted the live-approved 0.2.5 behavior to the first stable production release.

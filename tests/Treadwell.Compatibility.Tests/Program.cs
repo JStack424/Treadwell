@@ -16,7 +16,7 @@ namespace Treadwell.Compatibility.Tests
         private const string ExpectedSha256 = "e5af0669755ed3b098f71b4dd0753f8a997761b99bca1e8dac3d5ca4c706a0be";
         private const string ExpectedUtilsSha256 = "5d26cbdcb430acd41af26fb6efda0b6b291a89f6fb6934c503abb896bd51da40";
         private const string ExpectedGuiUtilsSha256 = "5966a7ca268fb30c8cd625181e9cb26ee0deac0332a2504eaa6c220f66d23939";
-        private const int ExpectedChecks = 131;
+        private const int ExpectedChecks = 123;
         private static readonly Guid ExpectedMvid = new Guid("a63433e8-968e-407a-918a-9f9fe7e7ba9a");
         private static int _passed;
 
@@ -38,8 +38,6 @@ namespace Treadwell.Compatibility.Tests
             contract.Method("ZNetScene", "OnDestroy", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
             contract.Method("Player", "SetPlaceMode", "System.Void", new[] { "PieceTable" }, MethodAttributes.Family | MethodAttributes.Virtual);
             contract.Method("Player", "GetBuildTool", "PieceTable", Array.Empty<string>(), MethodAttributes.Public);
-            contract.Method("Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
-            contract.Method("Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" }, MethodAttributes.Public);
             contract.Method("Player", "UpdatePlacement", "System.Void", new[] { "System.Boolean", "System.Single" }, MethodAttributes.Private);
             contract.Method("GameCamera", "UpdateCamera", "System.Void", new[] { "System.Single" }, MethodAttributes.Private);
             contract.Method("KeyHints", "Update", "System.Void", Array.Empty<string>(), MethodAttributes.Private);
@@ -127,15 +125,6 @@ namespace Treadwell.Compatibility.Tests
             contract.Field("Heightmap", "m_paintMaskCultivated", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
             contract.Field("Heightmap", "m_paintMaskPaved", "UnityEngine.Color", FieldAttributes.Public | FieldAttributes.Static);
 
-            contract.HaveRequirementsStationCallSequence();
-            contract.HaveRequirementsStationFailureBranch();
-            contract.RequirementCallSite(
-                "PieceTable", "UpdateAvailable",
-                new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" },
-                expectedMode: 2, requireTryPlaceAfter: false);
-            contract.RequirementCallSite(
-                "Player", "UpdatePlacement", new[] { "System.Boolean", "System.Single" },
-                expectedMode: 0, requireTryPlaceAfter: true);
             contract.GenericMethodCall(
                 "PieceTable", "UpdateAvailable", "System.Void",
                 new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" },
@@ -230,13 +219,6 @@ namespace Treadwell.Compatibility.Tests
                 new[] { "UnityEngine.Vector3", "UnityEngine.Vector3", "Settings" });
             contract.InternalDoOperationConsumesTerrainRadii();
             contract.SerializeCarriesIdentityWithoutRadii();
-            contract.MethodCalls(
-                "Player", "SetPlaceMode", "System.Void", new[] { "PieceTable" },
-                "Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>());
-            contract.MethodCalls(
-                "Player", "UpdateAvailablePiecesList", "System.Void", Array.Empty<string>(),
-                "PieceTable", "UpdateAvailable", "System.Void",
-                new[] { "System.Collections.Generic.HashSet`1<System.String>", "Player", "System.Boolean", "System.Boolean" });
             contract.MethodCalls(
                 "Character", "UpdateWalking", "System.Void", new[] { "System.Single" },
                 "Character", "GetRunSpeedFactor", "System.Single", Array.Empty<string>());
@@ -345,134 +327,6 @@ namespace Treadwell.Compatibility.Tests
                     throw new InvalidOperationException(typeName + "." + methodName + " signature/attributes mismatch");
                 _passed++;
                 Console.WriteLine("PASS method " + typeName + "." + methodName);
-            }
-
-            internal void HaveRequirementsStationCallSequence()
-            {
-                var haveRequirementsHandle = FindMethodHandle(
-                    "Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" });
-                var stationMethodHandle = FindMethodHandle(
-                    "CraftingStation", "HaveBuildStationInRange", "CraftingStation",
-                    new[] { "System.String", "UnityEngine.Vector3" });
-                var implicitHandle = _reader.MemberReferences.Single(handle =>
-                {
-                    var member = _reader.GetMemberReference(handle);
-                    if (_reader.GetString(member.Name) != "op_Implicit" || member.Parent.Kind != HandleKind.TypeReference)
-                        return false;
-                    var parent = _reader.GetTypeReference((TypeReferenceHandle)member.Parent);
-                    if (_reader.GetString(parent.Namespace) != "UnityEngine" || _reader.GetString(parent.Name) != "Object")
-                        return false;
-                    var signature = member.DecodeMethodSignature(_provider, null);
-                    return signature.ReturnType == "System.Boolean" &&
-                           signature.ParameterTypes.SequenceEqual(new[] { "UnityEngine.Object" });
-                });
-
-                var firstToken = MetadataTokens.GetToken(stationMethodHandle);
-                var secondToken = MetadataTokens.GetToken(implicitHandle);
-                var pattern = new byte[10];
-                pattern[0] = 0x28;
-                BitConverter.GetBytes(firstToken).CopyTo(pattern, 1);
-                pattern[5] = 0x28;
-                BitConverter.GetBytes(secondToken).CopyTo(pattern, 6);
-
-                var il = MethodIl(haveRequirementsHandle);
-                var matches = 0;
-                for (var index = 0; index <= il.Length - pattern.Length; index++)
-                {
-                    if (il.AsSpan(index, pattern.Length).SequenceEqual(pattern)) matches++;
-                }
-                if (matches != 1)
-                    throw new InvalidOperationException("Player.HaveRequirements station call sequence mismatch: " + matches);
-                _passed++;
-                Console.WriteLine("PASS IL Player.HaveRequirements station call sequence");
-            }
-
-            internal void HaveRequirementsStationFailureBranch()
-            {
-                var haveRequirementsHandle = FindMethodHandle(
-                    "Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" });
-                var stationHandle = FindMethodHandle(
-                    "CraftingStation", "HaveBuildStationInRange", "CraftingStation",
-                    new[] { "System.String", "UnityEngine.Vector3" });
-                var zoneInstanceHandle = FindMethodHandle("ZoneSystem", "get_instance", "ZoneSystem", Array.Empty<string>());
-                var globalKeyHandle = FindMethodHandle(
-                    "ZoneSystem", "GetGlobalKey", "System.Boolean", new[] { "GlobalKeys" });
-                var implicitHandle = _reader.MemberReferences.Single(handle =>
-                {
-                    var member = _reader.GetMemberReference(handle);
-                    if (_reader.GetString(member.Name) != "op_Implicit" || member.Parent.Kind != HandleKind.TypeReference)
-                        return false;
-                    var parent = _reader.GetTypeReference((TypeReferenceHandle)member.Parent);
-                    if (_reader.GetString(parent.Namespace) != "UnityEngine" || _reader.GetString(parent.Name) != "Object")
-                        return false;
-                    var signature = member.DecodeMethodSignature(_provider, null);
-                    return signature.ReturnType == "System.Boolean" &&
-                           signature.ParameterTypes.SequenceEqual(new[] { "UnityEngine.Object" });
-                });
-
-                var il = MethodIl(haveRequirementsHandle);
-                var stationCall = FindCallOffsets(il, MetadataTokens.GetToken(stationHandle)).Single();
-                if (stationCall + 28 >= il.Length ||
-                    il[stationCall] != 0x28 ||
-                    ReadToken(il, stationCall + 1) != MetadataTokens.GetToken(stationHandle) ||
-                    il[stationCall + 5] != 0x28 ||
-                    ReadToken(il, stationCall + 6) != MetadataTokens.GetToken(implicitHandle) ||
-                    il[stationCall + 10] != 0x2d ||
-                    il[stationCall + 12] != 0x28 ||
-                    ReadToken(il, stationCall + 13) != MetadataTokens.GetToken(zoneInstanceHandle) ||
-                    il[stationCall + 17] != 0x1f || il[stationCall + 18] != 27 ||
-                    il[stationCall + 19] != 0x6f ||
-                    ReadToken(il, stationCall + 20) != MetadataTokens.GetToken(globalKeyHandle) ||
-                    il[stationCall + 24] != 0x2d ||
-                    il[stationCall + 26] != 0x16 || il[stationCall + 27] != 0x2a)
-                {
-                    throw new InvalidOperationException("Player.HaveRequirements station-failure branch shape mismatch");
-                }
-
-                var stationSuccessTarget = stationCall + 12 + unchecked((sbyte)il[stationCall + 11]);
-                var freeBuildSuccessTarget = stationCall + 26 + unchecked((sbyte)il[stationCall + 25]);
-                if (stationSuccessTarget != stationCall + 28 || freeBuildSuccessTarget != stationCall + 28)
-                    throw new InvalidOperationException("Player.HaveRequirements station-failure branch target mismatch");
-
-                _passed++;
-                Console.WriteLine("PASS IL null station bypasses the complete station-failure branch");
-            }
-
-            internal void RequirementCallSite(
-                string typeName,
-                string methodName,
-                string[] parameters,
-                int expectedMode,
-                bool requireTryPlaceAfter)
-            {
-                var methodHandle = FindMethodHandle(typeName, methodName, parameters);
-                var haveRequirementsHandle = FindMethodHandle(
-                    "Player", "HaveRequirements", "System.Boolean", new[] { "Piece", "RequirementMode" });
-                var il = MethodIl(methodHandle);
-                var calls = FindCallOffsets(il, MetadataTokens.GetToken(haveRequirementsHandle));
-                if (calls.Count != 1)
-                    throw new InvalidOperationException(typeName + "." + methodName + " requirement call count mismatch: " + calls.Count);
-
-                var expectedModeOpcode = expectedMode switch
-                {
-                    0 => (byte)0x16,
-                    1 => (byte)0x17,
-                    2 => (byte)0x18,
-                    _ => throw new ArgumentOutOfRangeException(nameof(expectedMode))
-                };
-                if (calls[0] == 0 || il[calls[0] - 1] != expectedModeOpcode)
-                    throw new InvalidOperationException(typeName + "." + methodName + " requirement mode mismatch");
-
-                if (requireTryPlaceAfter)
-                {
-                    var tryPlaceHandle = FindMethodHandle("Player", "TryPlacePiece", new[] { "Piece" });
-                    var tryPlaceCalls = FindCallOffsets(il, MetadataTokens.GetToken(tryPlaceHandle));
-                    if (tryPlaceCalls.Count != 1 || tryPlaceCalls[0] <= calls[0])
-                        throw new InvalidOperationException(typeName + "." + methodName + " placement call ordering mismatch");
-                }
-
-                _passed++;
-                Console.WriteLine("PASS IL " + typeName + "." + methodName + " requirement path");
             }
 
             internal void Field(string typeName, string fieldName, string fieldType, FieldAttributes required)
